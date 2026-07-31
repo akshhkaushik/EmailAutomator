@@ -1,9 +1,18 @@
+import { getVercelOidcToken } from "@vercel/oidc";
+
 type Profile = {
   name?: string;
   role?: string;
   context?: string;
   portfolio?: string;
   linkedin?: string;
+  projects?: Array<{
+    id?: string;
+    title?: string;
+    description?: string;
+    liveUrl?: string;
+    repoUrl?: string;
+  }>;
   template?: string;
 };
 
@@ -52,9 +61,13 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
   const companyName = company.charAt(0).toUpperCase() + company.slice(1);
   const detail = `the product direction and customer experience visible across ${companyUrl.hostname}`;
   const contribution = profile.context || "building useful, polished product experiences and automating repetitive work";
+  const selectedProjects = validProjects(profile).slice(0, 2).map((project) => ({
+    ...project,
+    reason: "Included as a concrete example of relevant product work.",
+  }));
   return {
     companyName,
-    companySummary: `A preview research summary for ${companyUrl.hostname}. Live website analysis activates when OPENAI_API_KEY is configured.`,
+    companySummary: `A preview research summary for ${companyUrl.hostname}. Live website analysis activates when AI Gateway or an OpenAI fallback is configured.`,
     evidence: [
       `Company source: ${companyUrl.origin}`,
       "The live research service is not configured yet, so no unverified company claims were added.",
@@ -63,16 +76,49 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
       contribution,
       `Explore a small proof of concept aligned with your ${profile.role || "target role"}.`,
     ],
+    selectedProjects,
     subject: `A contribution idea for ${companyName}`,
     body: renderTemplate(profile.template, {
       recipient: recipientName || "there",
       company: companyName,
       company_detail: detail,
       contribution,
+      projects: projectLinks(selectedProjects),
       name: profile.name || "Your name",
     }, profile),
     demo: true,
   };
+}
+
+function validProjects(profile: Profile) {
+  return (profile.projects || []).flatMap((project) => {
+    if (!project.title?.trim() || !project.liveUrl?.trim()) return [];
+    try {
+      const live = new URL(project.liveUrl);
+      if (!["http:", "https:"].includes(live.protocol)) return [];
+      let repoUrl = "";
+      if (project.repoUrl?.trim()) {
+        const repo = new URL(project.repoUrl);
+        if (["http:", "https:"].includes(repo.protocol)) repoUrl = repo.toString();
+      }
+      return [{
+        title: project.title.trim().slice(0, 100),
+        description: (project.description || "").trim().slice(0, 600),
+        liveUrl: live.toString(),
+        repoUrl,
+      }];
+    } catch {
+      return [];
+    }
+  }).slice(0, 12);
+}
+
+function projectLinks(projects: Array<{ title: string; liveUrl: string; repoUrl: string; reason: string }>) {
+  if (projects.length === 0) return "I’d be glad to share relevant work samples.";
+  return projects.map((project) => {
+    const source = project.repoUrl ? ` · [Source code](${project.repoUrl})` : "";
+    return `- [${project.title}](${project.liveUrl})${source} — ${project.reason}`;
+  }).join("\n");
 }
 
 function renderTemplate(
@@ -103,8 +149,18 @@ export async function POST(request: Request) {
       return Response.json({ error: "Enter a valid recipient email." }, { status: 400 });
     }
     const profile = payload.profile || {};
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return Response.json(fallbackDraft(companyUrl, payload.recipientName || "", profile));
+    let gatewayToken = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
+    if (!gatewayToken && process.env.VERCEL) {
+      try {
+        gatewayToken = await getVercelOidcToken();
+      } catch {
+        gatewayToken = undefined;
+      }
+    }
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const apiToken = gatewayToken || openaiKey;
+    if (!apiToken) return Response.json(fallbackDraft(companyUrl, payload.recipientName || "", profile));
+    const projects = validProjects(profile);
 
     const websiteResponse = await fetch(companyUrl.toString(), {
       redirect: "follow",
@@ -122,26 +178,62 @@ export async function POST(request: Request) {
         companySummary: { type: "string" },
         evidence: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
         contributionIdeas: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
+        selectedProjects: {
+          type: "array",
+          minItems: 0,
+          maxItems: 2,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              title: { type: "string" },
+              liveUrl: { type: "string" },
+              repoUrl: { type: "string" },
+              reason: { type: "string" },
+            },
+            required: ["title", "liveUrl", "repoUrl", "reason"],
+          },
+        },
         subject: { type: "string" },
         companyDetail: { type: "string" },
         contribution: { type: "string" },
       },
-      required: ["companyName", "companySummary", "evidence", "contributionIdeas", "subject", "companyDetail", "contribution"],
+      required: ["companyName", "companySummary", "evidence", "contributionIdeas", "selectedProjects", "subject", "companyDetail", "contribution"],
     };
 
-    const aiResponse = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-5.4",
-        store: false,
-        instructions:
-          "You research a company for respectful, truthful job outreach. Use only the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Keep the email insight specific but modest. Suggest ways the sender could contribute based on their real context. Avoid flattery, hype, and pressure.",
-        input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context: ${profile.context || ""}\n\nWebsite text:\n${websiteText}`,
-        text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
-      }),
-    });
-    const aiJson = await aiResponse.json() as { error?: { message?: string }; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
+    const useGateway = Boolean(gatewayToken);
+    const aiRequest = {
+      store: false,
+      instructions:
+        "You research a company for respectful, truthful job outreach. Use only the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Keep the insight specific but modest. Suggest how the sender could contribute based on real context. Select at most two supplied projects only when they genuinely support the contribution. Copy every selected project title and URL exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
+      input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context: ${profile.context || ""}\nSender projects (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
+      text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
+    };
+    let aiResponse = await fetch(
+      useGateway ? "https://ai-gateway.vercel.sh/v1/responses" : "https://api.openai.com/v1/responses",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` },
+        body: JSON.stringify({
+          ...aiRequest,
+          model: useGateway
+            ? process.env.AI_MODEL || "openai/gpt-5.4"
+            : process.env.OPENAI_MODEL || "gpt-5.4",
+        }),
+      },
+    );
+    let aiJson = await aiResponse.json() as { error?: { message?: string }; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
+    if (!aiResponse.ok && useGateway && openaiKey) {
+      aiResponse = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          ...aiRequest,
+          model: process.env.OPENAI_MODEL || "gpt-5.4",
+        }),
+      });
+      aiJson = await aiResponse.json() as typeof aiJson;
+    }
     if (!aiResponse.ok) throw new Error(aiJson.error?.message || "The research service could not create a draft.");
     const outputText = extractOutputText(aiJson);
     if (!outputText) throw new Error("The research service returned an empty draft.");
@@ -150,21 +242,30 @@ export async function POST(request: Request) {
       companySummary: string;
       evidence: string[];
       contributionIdeas: string[];
+      selectedProjects: Array<{ title: string; liveUrl: string; repoUrl: string; reason: string }>;
       subject: string;
       companyDetail: string;
       contribution: string;
     };
+    const allowedProjects = new Map(projects.map((project) => [project.liveUrl, project]));
+    const selectedProjects = result.selectedProjects.flatMap((project) => {
+      const allowed = allowedProjects.get(project.liveUrl);
+      if (!allowed || allowed.title !== project.title) return [];
+      return [{ ...allowed, reason: project.reason }];
+    }).slice(0, 2);
     return Response.json({
       companyName: result.companyName,
       companySummary: result.companySummary,
       evidence: result.evidence,
       contributionIdeas: result.contributionIdeas,
+      selectedProjects,
       subject: result.subject,
       body: renderTemplate(profile.template, {
         recipient: payload.recipientName || "there",
         company: result.companyName,
         company_detail: result.companyDetail,
         contribution: result.contribution,
+        projects: projectLinks(selectedProjects),
         name: profile.name || "Your name",
       }, profile),
     });

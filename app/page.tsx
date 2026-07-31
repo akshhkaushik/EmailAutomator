@@ -7,9 +7,23 @@ type Draft = {
   companySummary: string;
   evidence: string[];
   contributionIdeas: string[];
+  selectedProjects: Array<{
+    title: string;
+    liveUrl: string;
+    repoUrl: string;
+    reason: string;
+  }>;
   subject: string;
   body: string;
   demo?: boolean;
+};
+
+type Project = {
+  id: string;
+  title: string;
+  description: string;
+  liveUrl: string;
+  repoUrl: string;
 };
 
 type Profile = {
@@ -18,6 +32,7 @@ type Profile = {
   context: string;
   portfolio: string;
   linkedin: string;
+  projects: Project[];
   template: string;
 };
 
@@ -28,8 +43,9 @@ const initialProfile: Profile = {
     "I build thoughtful web products, automate repetitive work, and enjoy contributing across product and engineering.",
   portfolio: "",
   linkedin: "",
+  projects: [],
   template:
-    "Hi {{recipient}},\n\nI’ve been following {{company}} and was especially interested in {{company_detail}}.\n\nI’d love to contribute to the team. Based on what I learned, I could help with {{contribution}}.\n\nIf this is useful, I’d be glad to share a few concrete ideas or build a small proof of concept. I’ve attached my résumé for context.\n\nBest,\n{{name}}",
+    "Hi {{recipient}},\n\nI’ve been following {{company}} and was especially interested in {{company_detail}}.\n\nI’d love to contribute to the team. Based on what I learned, I could help with {{contribution}}.\n\nA couple of relevant things I’ve built:\n{{projects}}\n\nIf this is useful, I’d be glad to share a few concrete ideas or build a small proof of concept. I’ve attached my résumé for context.\n\nBest,\n{{name}}",
 };
 
 declare global {
@@ -73,18 +89,26 @@ export default function Home() {
   const tokenClientRef = useRef<{ requestAccessToken: () => void } | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem("signal-profile");
-    if (saved) {
-      try {
-        setProfile({ ...initialProfile, ...JSON.parse(saved) });
-      } catch {
-        localStorage.removeItem("signal-profile");
+    const restoreTimer = window.setTimeout(() => {
+      const saved = localStorage.getItem("signal-profile");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved) as Partial<Profile>;
+          setProfile({
+            ...initialProfile,
+            ...parsed,
+            projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+          });
+        } catch {
+          localStorage.removeItem("signal-profile");
+        }
       }
-    }
+    }, 0);
     fetch("/api/config")
       .then((response) => response.json())
       .then((data) => setGoogleClientId(data.googleClientId || ""))
       .catch(() => undefined);
+    return () => window.clearTimeout(restoreTimer);
   }, []);
 
   useEffect(() => {
@@ -118,8 +142,46 @@ export default function Home() {
   const step = status === "sent" ? 4 : draft ? 3 : status === "researching" ? 2 : 1;
   const companyHost = useMemo(() => hostFromUrl(companyUrl), [companyUrl]);
 
-  function updateProfile(field: keyof Profile, value: string) {
+  function updateProfile(field: Exclude<keyof Profile, "projects">, value: string) {
     setProfile((current) => ({ ...current, [field]: value }));
+  }
+
+  function addProject() {
+    setProfile((current) => ({
+      ...current,
+      projects: [
+        ...current.projects,
+        { id: crypto.randomUUID(), title: "", description: "", liveUrl: "", repoUrl: "" },
+      ],
+    }));
+  }
+
+  function updateProject(id: string, field: keyof Omit<Project, "id">, value: string) {
+    setProfile((current) => ({
+      ...current,
+      projects: current.projects.map((project) =>
+        project.id === id ? { ...project, [field]: value } : project,
+      ),
+    }));
+  }
+
+  function removeProject(id: string) {
+    setProfile((current) => ({
+      ...current,
+      projects: current.projects.filter((project) => project.id !== id),
+    }));
+  }
+
+  function connectGmail() {
+    if (!googleClientId) {
+      setNotice("Gmail is not configured yet. Add GOOGLE_CLIENT_ID to the Vercel project, then redeploy.");
+      return;
+    }
+    if (!tokenClientRef.current) {
+      setNotice("Google sign-in is still loading. Please try again in a moment.");
+      return;
+    }
+    tokenClientRef.current.requestAccessToken();
   }
 
   async function generateDraft(event: FormEvent) {
@@ -144,7 +206,7 @@ export default function Home() {
       setSubject(result.subject);
       setBody(result.body);
       setStatus("ready");
-      setNotice(result.demo ? "Preview draft created. Add an OpenAI key to enable live website research." : "Research complete. Review every claim before sending.");
+      setNotice(result.demo ? "Preview draft created. Configure AI Gateway or an OpenAI fallback to enable live website research." : "Research complete. Review every claim before sending.");
     } catch (error) {
       setStatus("idle");
       setNotice(error instanceof Error ? error.message : "Something went wrong.");
@@ -153,8 +215,7 @@ export default function Home() {
 
   async function sendEmail() {
     if (!gmailToken) {
-      tokenClientRef.current?.requestAccessToken();
-      if (!tokenClientRef.current) setNotice("Add a Google OAuth client ID to connect Gmail.");
+      connectGmail();
       return;
     }
     if (!resume) {
@@ -202,7 +263,7 @@ export default function Home() {
         <div className="privacy-note"><span className="privacy-dot" /> Review-first outreach</div>
         <button
           className={`connection ${gmailToken ? "connected" : ""}`}
-          onClick={() => tokenClientRef.current?.requestAccessToken()}
+          onClick={connectGmail}
           type="button"
         >
           <span>{gmailToken ? "●" : "○"}</span>
@@ -238,12 +299,38 @@ export default function Home() {
                 LinkedIn URL
                 <input value={profile.linkedin} onChange={(e) => updateProfile("linkedin", e.target.value)} placeholder="https://…" />
               </label>
+              <div className="projects-heading">
+                <div>
+                  <b>Your projects</b>
+                  <small>The AI includes only the strongest match.</small>
+                </div>
+                <button type="button" onClick={addProject}>＋ Add</button>
+              </div>
+              <div className="project-list">
+                {profile.projects.length === 0 && (
+                  <button className="empty-project" type="button" onClick={addProject}>
+                    Add a project with its live link
+                  </button>
+                )}
+                {profile.projects.map((project, index) => (
+                  <div className="project-card" key={project.id}>
+                    <div className="project-card-top">
+                      <span>Project {index + 1}</span>
+                      <button type="button" onClick={() => removeProject(project.id)} aria-label={`Remove project ${index + 1}`}>Remove</button>
+                    </div>
+                    <input value={project.title} onChange={(e) => updateProject(project.id, "title", e.target.value)} placeholder="Project title" aria-label={`Project ${index + 1} title`} />
+                    <textarea rows={3} value={project.description} onChange={(e) => updateProject(project.id, "description", e.target.value)} placeholder="What it does and what you built" aria-label={`Project ${index + 1} description`} />
+                    <input type="url" value={project.liveUrl} onChange={(e) => updateProject(project.id, "liveUrl", e.target.value)} placeholder="Live URL (required)" aria-label={`Project ${index + 1} live URL`} />
+                    <input type="url" value={project.repoUrl} onChange={(e) => updateProject(project.id, "repoUrl", e.target.value)} placeholder="Repository URL (optional)" aria-label={`Project ${index + 1} repository URL`} />
+                  </div>
+                ))}
+              </div>
               <label>
                 Base template
                 <textarea rows={10} value={profile.template} onChange={(e) => updateProfile("template", e.target.value)} />
               </label>
               <div className="template-help">
-                Available: {"{{recipient}} {{company}} {{company_detail}} {{contribution}} {{name}}"}
+                Available: {"{{recipient}} {{company}} {{company_detail}} {{contribution}} {{projects}} {{name}}"}
               </div>
             </div>
           )}
@@ -316,6 +403,17 @@ export default function Home() {
                   <div><h3>Details used</h3><ul>{draft.evidence.map((item) => <li key={item}>{item}</li>)}</ul></div>
                   <div><h3>Where you could help</h3><ul>{draft.contributionIdeas.map((item) => <li key={item}>{item}</li>)}</ul></div>
                 </div>
+                {draft.selectedProjects.length > 0 && (
+                  <div className="matched-projects">
+                    <h3>Projects selected for this email</h3>
+                    {draft.selectedProjects.map((project) => (
+                      <div key={`${project.title}-${project.liveUrl}`}>
+                        <a href={project.liveUrl} target="_blank" rel="noreferrer">{project.title} ↗</a>
+                        <span>{project.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="editor-card">

@@ -68,6 +68,27 @@ input, textarea {
 textarea { resize: vertical; }
 input:focus, textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(35,95,70,.1); }
 .template-help { padding: 10px; border-radius: 7px; background: #e8eee8; color: #66716b; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.projects-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 22px 0 10px; }
+.projects-heading b, .projects-heading small { display: block; }
+.projects-heading b { font-size: 12px; }
+.projects-heading small { color: var(--muted); margin-top: 3px; font-size: 9px; }
+.projects-heading button, .project-card-top button, .empty-project {
+  border: 1px solid #cfd7d1;
+  background: #fff;
+  color: var(--green);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 800;
+}
+.projects-heading button { padding: 7px 9px; }
+.project-list { display: grid; gap: 10px; margin-bottom: 18px; }
+.empty-project { width: 100%; padding: 12px; border-style: dashed; }
+.project-card { padding: 11px; border: 1px solid #d6ddd7; border-radius: 9px; background: #f9faf7; }
+.project-card input, .project-card textarea { margin-top: 7px; padding: 9px 10px; font-size: 11px; }
+.project-card-top { display: flex; align-items: center; justify-content: space-between; }
+.project-card-top span { color: var(--muted); font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+.project-card-top button { padding: 4px 7px; color: #8b514c; }
 
 .main-panel { padding: 58px clamp(30px, 6vw, 92px) 100px; max-width: 1260px; width: 100%; margin: 0 auto; }
 .hero { max-width: 760px; }
@@ -122,6 +143,11 @@ h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 25px;
 .insight-columns ul { list-style: none; margin: 12px 0 0; padding: 0; }
 .insight-columns li { color: #48534c; font-size: 11px; line-height: 1.55; padding: 6px 0 6px 19px; position: relative; }
 .insight-columns li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 900; }
+.matched-projects { grid-column: 2 / -1; border-top: 1px solid var(--line); padding-top: 18px; }
+.matched-projects h3 { margin: 0 0 10px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+.matched-projects > div { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; }
+.matched-projects a { color: var(--green); font-size: 11px; font-weight: 800; text-decoration: none; }
+.matched-projects span { color: var(--muted); font-size: 10px; }
 
 .editor-card { overflow: hidden; }
 .editor-top { display: flex; justify-content: space-between; align-items: start; padding: 26px 28px; background: var(--cream); border-bottom: 1px solid #e7e2d4; }
@@ -158,6 +184,8 @@ h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 25px;
   .company-initial { width: 40px; height: 40px; }
   .insights-card > a { grid-column: 2; justify-self: start; }
   .insight-columns { grid-column: 1 / -1; }
+  .matched-projects { grid-column: 1 / -1; }
+  .matched-projects > div { align-items: flex-start; flex-direction: column; gap: 4px; }
   .editor-top, .send-footer { align-items: stretch; flex-direction: column; }
   .editor-card > label { grid-template-columns: 1fr; gap: 0; padding-top: 12px; }
   .editor-card > label input, .editor-card > label textarea { padding-top: 7px; }
