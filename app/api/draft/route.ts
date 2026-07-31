@@ -1,0 +1,175 @@
+type Profile = {
+  name?: string;
+  role?: string;
+  context?: string;
+  portfolio?: string;
+  linkedin?: string;
+  template?: string;
+};
+
+const BLOCKED_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+
+function normalizeUrl(input: unknown) {
+  if (typeof input !== "string") throw new Error("Enter a valid company website.");
+  const url = new URL(input);
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("The company website must use http or https.");
+  const host = url.hostname.toLowerCase();
+  if (
+    BLOCKED_HOSTS.has(host) ||
+    host.endsWith(".local") ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  ) throw new Error("That website address is not allowed.");
+  return url;
+}
+
+function textFromHtml(html: string) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 70_000);
+}
+
+function extractOutputText(response: {
+  output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+}) {
+  return response.output
+    ?.flatMap((item) => item.content || [])
+    .find((part) => part.type === "output_text")?.text;
+}
+
+function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile) {
+  const company = companyUrl.hostname.replace(/^www\./, "").split(".")[0];
+  const companyName = company.charAt(0).toUpperCase() + company.slice(1);
+  const detail = `the product direction and customer experience visible across ${companyUrl.hostname}`;
+  const contribution = profile.context || "building useful, polished product experiences and automating repetitive work";
+  return {
+    companyName,
+    companySummary: `A preview research summary for ${companyUrl.hostname}. Live website analysis activates when OPENAI_API_KEY is configured.`,
+    evidence: [
+      `Company source: ${companyUrl.origin}`,
+      "The live research service is not configured yet, so no unverified company claims were added.",
+    ],
+    contributionIdeas: [
+      contribution,
+      `Explore a small proof of concept aligned with your ${profile.role || "target role"}.`,
+    ],
+    subject: `A contribution idea for ${companyName}`,
+    body: renderTemplate(profile.template, {
+      recipient: recipientName || "there",
+      company: companyName,
+      company_detail: detail,
+      contribution,
+      name: profile.name || "Your name",
+    }, profile),
+    demo: true,
+  };
+}
+
+function renderTemplate(
+  template: string | undefined,
+  values: Record<string, string>,
+  profile: Profile,
+) {
+  const defaultTemplate = "Hi {{recipient}},\n\nI was impressed by {{company_detail}} at {{company}}.\n\nI’d love to contribute. I could help with {{contribution}}.\n\nI’ve attached my résumé and would be glad to share a few concrete ideas.\n\nBest,\n{{name}}";
+  let body = template || defaultTemplate;
+  for (const [key, value] of Object.entries(values)) {
+    body = body.replaceAll(`{{${key}}}`, value);
+  }
+  const links = [profile.portfolio && `Portfolio: ${profile.portfolio}`, profile.linkedin && `LinkedIn: ${profile.linkedin}`].filter(Boolean);
+  if (links.length) body += `\n${links.join("\n")}`;
+  return body;
+}
+
+export async function POST(request: Request) {
+  try {
+    const payload = await request.json() as {
+      companyUrl?: string;
+      recipientEmail?: string;
+      recipientName?: string;
+      profile?: Profile;
+    };
+    const companyUrl = normalizeUrl(payload.companyUrl);
+    if (!payload.recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.recipientEmail)) {
+      return Response.json({ error: "Enter a valid recipient email." }, { status: 400 });
+    }
+    const profile = payload.profile || {};
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return Response.json(fallbackDraft(companyUrl, payload.recipientName || "", profile));
+
+    const websiteResponse = await fetch(companyUrl.toString(), {
+      redirect: "follow",
+      headers: { "User-Agent": "SignalOutreachResearch/1.0" },
+    });
+    if (!websiteResponse.ok) throw new Error(`The company website returned ${websiteResponse.status}.`);
+    const websiteText = textFromHtml(await websiteResponse.text());
+    if (websiteText.length < 120) throw new Error("The company website did not contain enough readable information.");
+
+    const schema = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        companyName: { type: "string" },
+        companySummary: { type: "string" },
+        evidence: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
+        contributionIdeas: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
+        subject: { type: "string" },
+        companyDetail: { type: "string" },
+        contribution: { type: "string" },
+      },
+      required: ["companyName", "companySummary", "evidence", "contributionIdeas", "subject", "companyDetail", "contribution"],
+    };
+
+    const aiResponse = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-5.4",
+        store: false,
+        instructions:
+          "You research a company for respectful, truthful job outreach. Use only the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Keep the email insight specific but modest. Suggest ways the sender could contribute based on their real context. Avoid flattery, hype, and pressure.",
+        input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context: ${profile.context || ""}\n\nWebsite text:\n${websiteText}`,
+        text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
+      }),
+    });
+    const aiJson = await aiResponse.json() as { error?: { message?: string }; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
+    if (!aiResponse.ok) throw new Error(aiJson.error?.message || "The research service could not create a draft.");
+    const outputText = extractOutputText(aiJson);
+    if (!outputText) throw new Error("The research service returned an empty draft.");
+    const result = JSON.parse(outputText) as {
+      companyName: string;
+      companySummary: string;
+      evidence: string[];
+      contributionIdeas: string[];
+      subject: string;
+      companyDetail: string;
+      contribution: string;
+    };
+    return Response.json({
+      companyName: result.companyName,
+      companySummary: result.companySummary,
+      evidence: result.evidence,
+      contributionIdeas: result.contributionIdeas,
+      subject: result.subject,
+      body: renderTemplate(profile.template, {
+        recipient: payload.recipientName || "there",
+        company: result.companyName,
+        company_detail: result.companyDetail,
+        contribution: result.contribution,
+        name: profile.name || "Your name",
+      }, profile),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not research this company.";
+    return Response.json({ error: message }, { status: 400 });
+  }
+}
