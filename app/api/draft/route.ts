@@ -207,8 +207,14 @@ export async function POST(request: Request) {
           },
         },
         subject: { type: "string" },
-        companyDetail: { type: "string" },
-        contribution: { type: "string" },
+        companyDetail: {
+          type: "string",
+          description: "A concise noun phrase that fits grammatically after 'I was interested in'; no terminal punctuation.",
+        },
+        contribution: {
+          type: "string",
+          description: "A concise gerund or noun phrase that fits grammatically after 'I could help with'; no terminal punctuation.",
+        },
       },
       required: ["companyName", "companySummary", "evidence", "contributionIdeas", "selectedProjects", "subject", "companyDetail", "contribution"],
     };
@@ -216,7 +222,7 @@ export async function POST(request: Request) {
     const aiRequest = {
       store: false,
       instructions:
-        "You research a company for respectful, truthful job outreach. Use only the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Keep the insight specific but modest. Suggest how the sender could contribute based on real context. Select at most two supplied projects only when they genuinely support the contribution. Copy every selected project title and URL exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
+        "You research a company for respectful, truthful job outreach. Use only the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Keep the insight specific but modest. Suggest how the sender could contribute based on real context. Write companyDetail as a concise noun phrase that fits immediately after 'I was interested in'. Write contribution as a concise gerund or noun phrase that fits immediately after 'I could help with'. Do not end either phrase with punctuation. Select at most two supplied projects only when they genuinely support the contribution. Copy every selected project title and URL exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
       input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context: ${profile.context || ""}\nSender projects (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
       text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
     };
