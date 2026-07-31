@@ -56,6 +56,16 @@ function extractOutputText(response: {
     .find((part) => part.type === "output_text")?.text;
 }
 
+function extractGeminiText(response: {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+}) {
+  return response.candidates
+    ?.flatMap((candidate) => candidate.content?.parts || [])
+    .map((part) => part.text || "")
+    .join("")
+    .trim();
+}
+
 function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile) {
   const company = companyUrl.hostname.replace(/^www\./, "").split(".")[0];
   const companyName = company.charAt(0).toUpperCase() + company.slice(1);
@@ -157,9 +167,11 @@ export async function POST(request: Request) {
         gatewayToken = undefined;
       }
     }
+    const geminiKey = process.env.GEMINI_API_KEY;
     const openaiKey = process.env.OPENAI_API_KEY;
-    const apiToken = gatewayToken || openaiKey;
-    if (!apiToken) return Response.json(fallbackDraft(companyUrl, payload.recipientName || "", profile));
+    if (!gatewayToken && !geminiKey && !openaiKey) {
+      return Response.json(fallbackDraft(companyUrl, payload.recipientName || "", profile));
+    }
     const projects = validProjects(profile);
 
     const websiteResponse = await fetch(companyUrl.toString(), {
@@ -201,7 +213,6 @@ export async function POST(request: Request) {
       required: ["companyName", "companySummary", "evidence", "contributionIdeas", "selectedProjects", "subject", "companyDetail", "contribution"],
     };
 
-    const useGateway = Boolean(gatewayToken);
     const aiRequest = {
       store: false,
       instructions:
@@ -209,22 +220,62 @@ export async function POST(request: Request) {
       input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context: ${profile.context || ""}\nSender projects (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
       text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
     };
-    let aiResponse = await fetch(
-      useGateway ? "https://ai-gateway.vercel.sh/v1/responses" : "https://api.openai.com/v1/responses",
-      {
+
+    let outputText = "";
+    const providerErrors: string[] = [];
+
+    if (gatewayToken) {
+      const gatewayResponse = await fetch("https://ai-gateway.vercel.sh/v1/responses", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${gatewayToken}` },
         body: JSON.stringify({
           ...aiRequest,
-          model: useGateway
-            ? process.env.AI_MODEL || "openai/gpt-5.4"
-            : process.env.OPENAI_MODEL || "gpt-5.4",
+          model: process.env.AI_MODEL || "openai/gpt-5.4",
         }),
-      },
-    );
-    let aiJson = await aiResponse.json() as { error?: { message?: string }; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
-    if (!aiResponse.ok && useGateway && openaiKey) {
-      aiResponse = await fetch("https://api.openai.com/v1/responses", {
+      });
+      const gatewayJson = await gatewayResponse.json() as {
+        error?: { message?: string };
+        output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+      };
+      if (gatewayResponse.ok) outputText = extractOutputText(gatewayJson) || "";
+      else providerErrors.push(`AI Gateway: ${gatewayJson.error?.message || "request failed"}`);
+    }
+
+    if (!outputText && geminiKey) {
+      const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+      const geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": geminiKey,
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: aiRequest.instructions }],
+            },
+            contents: [{
+              role: "user",
+              parts: [{ text: aiRequest.input }],
+            }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              responseJsonSchema: schema,
+            },
+          }),
+        },
+      );
+      const geminiJson = await geminiResponse.json() as {
+        error?: { message?: string };
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+      if (geminiResponse.ok) outputText = extractGeminiText(geminiJson) || "";
+      else providerErrors.push(`Gemini: ${geminiJson.error?.message || "request failed"}`);
+    }
+
+    if (!outputText && openaiKey) {
+      const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
         body: JSON.stringify({
@@ -232,11 +283,17 @@ export async function POST(request: Request) {
           model: process.env.OPENAI_MODEL || "gpt-5.4",
         }),
       });
-      aiJson = await aiResponse.json() as typeof aiJson;
+      const openaiJson = await openaiResponse.json() as {
+        error?: { message?: string };
+        output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+      };
+      if (openaiResponse.ok) outputText = extractOutputText(openaiJson) || "";
+      else providerErrors.push(`OpenAI: ${openaiJson.error?.message || "request failed"}`);
     }
-    if (!aiResponse.ok) throw new Error(aiJson.error?.message || "The research service could not create a draft.");
-    const outputText = extractOutputText(aiJson);
-    if (!outputText) throw new Error("The research service returned an empty draft.");
+
+    if (!outputText) {
+      throw new Error(providerErrors.join(" ") || "The research service returned an empty draft.");
+    }
     const result = JSON.parse(outputText) as {
       companyName: string;
       companySummary: string;
