@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { markdownToHtml } from "@/lib/markdown";
 
 type Draft = {
   companyName: string;
@@ -424,6 +425,16 @@ export default function Home() {
                 <label>To<input value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} /></label>
                 <label>Subject<input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
                 <label>Message<textarea rows={17} value={body} onChange={(e) => setBody(e.target.value)} /></label>
+                <div className="formatted-preview">
+                  <div className="formatted-preview-heading">
+                    <span>Formatted email preview</span>
+                    <small>Bold text and embedded links render like the sent email</small>
+                  </div>
+                  <div
+                    className="formatted-preview-body"
+                    dangerouslySetInnerHTML={{ __html: markdownToHtml(body) }}
+                  />
+                </div>
                 <div className="attachment-row"><span>▣</span><div><b>{resume?.name || "No résumé attached"}</b><small>{resume ? "Will be attached to this email" : "Choose a file above before sending"}</small></div></div>
                 <div className="send-footer">
                   <p><b>You are in control.</b><br />Signal will send exactly what you see above.</p>

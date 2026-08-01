@@ -1,27 +1,4 @@
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[character] || character);
-}
-
-function markdownToHtml(value: string) {
-  const links: string[] = [];
-  const withLinkTokens = escapeHtml(value).replace(
-    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-    (_match, label: string, url: string) => {
-      const index = links.push(`<a href="${url}" style="color:#235f46;font-weight:600">${label}</a>`) - 1;
-      return `%%SIGNAL_LINK_${index}%%`;
-    },
-  );
-  return withLinkTokens
-    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#235f46">$1</a>')
-    .replace(/%%SIGNAL_LINK_(\d+)%%/g, (_match, index: string) => links[Number(index)] || "")
-    .replace(/\n/g, "<br>");
-}
-
-function markdownToPlain(value: string) {
-  return value.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, "$1: $2");
-}
+import { markdownToHtml, markdownToPlain } from "@/lib/markdown";
 
 function utf8Base64(value: string) {
   const bytes = new TextEncoder().encode(value);

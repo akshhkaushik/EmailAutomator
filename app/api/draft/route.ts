@@ -33,7 +33,7 @@ function normalizeUrl(input: unknown) {
   return url;
 }
 
-function textFromHtml(html: string) {
+function textFromHtml(html: string, limit = 22_000) {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -45,7 +45,67 @@ function textFromHtml(html: string) {
     .replace(/&#39;|&apos;/g, "'")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 70_000);
+    .slice(0, limit);
+}
+
+const RESEARCH_PATH_HINTS = [
+  "product", "platform", "solution", "feature", "about", "company", "customer", "career", "job", "blog",
+];
+
+function researchLinks(html: string, baseUrl: URL) {
+  const candidates = new Map<string, number>();
+  for (const match of html.matchAll(/href=["']([^"'#]+)["']/gi)) {
+    try {
+      const url = new URL(match[1], baseUrl);
+      if (url.origin !== baseUrl.origin || !["http:", "https:"].includes(url.protocol)) continue;
+      if (/\.(?:pdf|png|jpe?g|gif|svg|webp|zip|xml|json)$/i.test(url.pathname)) continue;
+      url.hash = "";
+      url.search = "";
+      const normalized = url.toString();
+      if (normalized === baseUrl.toString()) continue;
+      const path = url.pathname.toLowerCase();
+      const score = RESEARCH_PATH_HINTS.reduce(
+        (total, hint, index) => total + (path.includes(hint) ? RESEARCH_PATH_HINTS.length - index : 0),
+        0,
+      );
+      if (score > 0) candidates.set(normalized, Math.max(score, candidates.get(normalized) || 0));
+    } catch {
+      // Ignore malformed or unsupported links from the target page.
+    }
+  }
+  return [...candidates.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+    .map(([url]) => url);
+}
+
+async function fetchResearchPage(url: string) {
+  const response = await fetch(url, {
+    redirect: "follow",
+    headers: { "User-Agent": "SignalOutreachResearch/1.0" },
+    signal: AbortSignal.timeout(9_000),
+  });
+  if (!response.ok) throw new Error(`Website page returned ${response.status}.`);
+  return { url: response.url, html: await response.text() };
+}
+
+function cleanGeneratedText(value: string) {
+  return value.replace(/[\[\]*_]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function bold(value: string) {
+  return `**${cleanGeneratedText(value)}**`;
+}
+
+function markdownLabel(value: string) {
+  return value.replace(/[\[\]]/g, "").trim();
+}
+
+function insertBeforeSignOff(body: string, block: string) {
+  const signOff = /\n{2,}(?=(?:best(?: regards)?|kind regards|regards|sincerely|thanks|thank you),?\s*\n)/i;
+  const match = signOff.exec(body);
+  if (!match || match.index < 0) return `${body}\n\n${block}`;
+  return `${body.slice(0, match.index).trimEnd()}\n\n${block}\n\n${body.slice(match.index).trimStart()}`;
 }
 
 function extractOutputText(response: {
@@ -77,7 +137,7 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
   }));
   return {
     companyName,
-    companySummary: `A preview research summary for ${companyUrl.hostname}. Live website analysis activates when AI Gateway or an OpenAI fallback is configured.`,
+    companySummary: `A preview research summary for ${companyUrl.hostname}. Live website analysis activates when Gemini, AI Gateway, or an OpenAI fallback is configured.`,
     evidence: [
       `Company source: ${companyUrl.origin}`,
       "The live research service is not configured yet, so no unverified company claims were added.",
@@ -90,9 +150,9 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
     subject: `A contribution idea for ${companyName}`,
     body: renderTemplate(profile.template, {
       recipient: recipientName || "there",
-      company: companyName,
-      company_detail: detail,
-      contribution,
+      company: bold(companyName),
+      company_detail: bold(detail),
+      contribution: bold(contribution),
       projects: projectLinks(selectedProjects),
       name: profile.name || "Your name",
     }, profile),
@@ -127,7 +187,7 @@ function projectLinks(projects: Array<{ title: string; liveUrl: string; repoUrl:
   if (projects.length === 0) return "I’d be glad to share relevant work samples.";
   return projects.map((project) => {
     const source = project.repoUrl ? ` · [Source code](${project.repoUrl})` : "";
-    return `- [${project.title}](${project.liveUrl})${source} — ${project.reason}`;
+    return `- **[${markdownLabel(project.title)}](${project.liveUrl})**${source} — ${project.reason}`;
   }).join("\n");
 }
 
@@ -137,12 +197,28 @@ function renderTemplate(
   profile: Profile,
 ) {
   const defaultTemplate = "Hi {{recipient}},\n\nI was impressed by {{company_detail}} at {{company}}.\n\nI’d love to contribute. I could help with {{contribution}}.\n\nI’ve attached my résumé and would be glad to share a few concrete ideas.\n\nBest,\n{{name}}";
-  let body = template || defaultTemplate;
+  let body = template?.trim() || defaultTemplate;
+  const additions: string[] = [];
+  if (!body.includes("{{company_detail}}")) {
+    additions.push("What stood out to me about {{company}} is {{company_detail}}.");
+  }
+  if (!body.includes("{{contribution}}")) {
+    additions.push("Based on that, I’d be excited to help with {{contribution}}.");
+  }
+  if (!body.includes("{{projects}}")) {
+    additions.push("Relevant work:\n{{projects}}");
+  }
+  if (additions.length) body = insertBeforeSignOff(body, additions.join("\n\n"));
+  const hasSignOff = /(?:^|\n)(?:best(?: regards)?|kind regards|regards|sincerely|thanks|thank you),?\s*\n/i.test(body);
+  if (!body.includes("{{name}}") && !hasSignOff) body += "\n\nBest,\n{{name}}";
   for (const [key, value] of Object.entries(values)) {
     body = body.replaceAll(`{{${key}}}`, value);
   }
-  const links = [profile.portfolio && `Portfolio: ${profile.portfolio}`, profile.linkedin && `LinkedIn: ${profile.linkedin}`].filter(Boolean);
-  if (links.length) body += `\n${links.join("\n")}`;
+  const links = [
+    profile.portfolio && `[Portfolio](${profile.portfolio})`,
+    profile.linkedin && `[LinkedIn](${profile.linkedin})`,
+  ].filter(Boolean);
+  if (links.length) body += `\n\n${links.join(" · ")}`;
   return body;
 }
 
@@ -174,13 +250,22 @@ export async function POST(request: Request) {
     }
     const projects = validProjects(profile);
 
-    const websiteResponse = await fetch(companyUrl.toString(), {
-      redirect: "follow",
-      headers: { "User-Agent": "SignalOutreachResearch/1.0" },
-    });
-    if (!websiteResponse.ok) throw new Error(`The company website returned ${websiteResponse.status}.`);
-    const websiteText = textFromHtml(await websiteResponse.text());
-    if (websiteText.length < 120) throw new Error("The company website did not contain enough readable information.");
+    const homePage = await fetchResearchPage(companyUrl.toString());
+    const researchBase = normalizeUrl(homePage.url);
+    const linkedPages = await Promise.allSettled(
+      researchLinks(homePage.html, researchBase).map((url) => fetchResearchPage(url)),
+    );
+    const pages = [
+      { url: homePage.url, text: textFromHtml(homePage.html) },
+      ...linkedPages.flatMap((result) => result.status === "fulfilled"
+        ? [{ url: result.value.url, text: textFromHtml(result.value.html, 16_000) }]
+        : []),
+    ].filter((page) => page.text.length >= 120);
+    if (pages.length === 0) throw new Error("The company website did not contain enough readable information.");
+    const websiteText = pages
+      .map((page) => `SOURCE: ${page.url}\n${page.text}`)
+      .join("\n\n")
+      .slice(0, 65_000);
 
     const schema = {
       type: "object",
@@ -188,8 +273,18 @@ export async function POST(request: Request) {
       properties: {
         companyName: { type: "string" },
         companySummary: { type: "string" },
-        evidence: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
-        contributionIdeas: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 },
+        evidence: {
+          type: "array",
+          items: { type: "string", description: "A concrete fact tied to a named product, workflow, audience, or initiative in the supplied sources." },
+          minItems: 2,
+          maxItems: 4,
+        },
+        contributionIdeas: {
+          type: "array",
+          items: { type: "string", description: "A specific build, improvement, or experiment the sender could realistically contribute." },
+          minItems: 2,
+          maxItems: 4,
+        },
         selectedProjects: {
           type: "array",
           minItems: 0,
@@ -206,14 +301,14 @@ export async function POST(request: Request) {
             required: ["title", "liveUrl", "repoUrl", "reason"],
           },
         },
-        subject: { type: "string" },
+        subject: { type: "string", description: "A natural 4-9 word subject mentioning a specific company product, focus, or useful contribution idea." },
         companyDetail: {
           type: "string",
-          description: "A concise noun phrase that fits grammatically after 'I was interested in'; no terminal punctuation.",
+          description: "A concise noun phrase naming a real company product, workflow, audience, or current focus; it must fit after 'I was interested in' and have no terminal punctuation.",
         },
         contribution: {
           type: "string",
-          description: "A concise gerund or noun phrase that fits grammatically after 'I could help with'; no terminal punctuation.",
+          description: "A concrete pitch describing what the sender could build or improve, for whom, and the likely practical benefit; it must fit after 'I could help with' and have no terminal punctuation.",
         },
       },
       required: ["companyName", "companySummary", "evidence", "contributionIdeas", "selectedProjects", "subject", "companyDetail", "contribution"],
@@ -222,7 +317,7 @@ export async function POST(request: Request) {
     const aiRequest = {
       store: false,
       instructions:
-        "You research a company for respectful, truthful job outreach. Use only the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Keep the insight specific but modest. Suggest how the sender could contribute based on real context. Write companyDetail as a concise noun phrase that fits immediately after 'I was interested in'. Write contribution as a concise gerund or noun phrase that fits immediately after 'I could help with'. Do not end either phrase with punctuation. Select at most two supplied projects only when they genuinely support the contribution. Copy every selected project title and URL exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
+        "You are a product-minded researcher writing respectful job outreach. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Then identify one realistic, non-generic contribution the sender could make using their stated skills: name what they could build or improve, the user or workflow it helps, and the practical benefit. Every claim must be traceable to the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. companyDetail must name a real product, workflow, audience, or initiative and fit after 'I was interested in'. contribution must be a concrete pitch and fit after 'I could help with'. Do not end either phrase with punctuation. Avoid vague language such as 'enhance the user experience', 'drive innovation', or 'contribute across engineering' unless followed by a specific deliverable. Select at most two supplied projects only when they genuinely prove the proposed contribution. Copy every selected project title and URL exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
       input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context: ${profile.context || ""}\nSender projects (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
       text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
     };
@@ -325,9 +420,9 @@ export async function POST(request: Request) {
       subject: result.subject,
       body: renderTemplate(profile.template, {
         recipient: payload.recipientName || "there",
-        company: result.companyName,
-        company_detail: result.companyDetail,
-        contribution: result.contribution,
+        company: bold(result.companyName),
+        company_detail: bold(result.companyDetail),
+        contribution: bold(result.contribution),
         projects: projectLinks(selectedProjects),
         name: profile.name || "Your name",
       }, profile),

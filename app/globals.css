@@ -156,6 +156,13 @@ h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 25px;
 .editor-card > label input, .editor-card > label textarea { border: 0; box-shadow: none; margin: 0; padding: 17px 0; border-radius: 0; font-size: 13px; }
 .editor-card > label textarea { min-height: 315px; }
 .editor-card > label:last-of-type { align-items: start; padding-top: 17px; }
+.formatted-preview { margin: 20px 28px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+.formatted-preview-heading { padding: 11px 14px; background: var(--soft); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.formatted-preview-heading span { color: var(--ink); font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+.formatted-preview-heading small { color: var(--muted); font-size: 9px; }
+.formatted-preview-body { padding: 18px; color: var(--ink); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.formatted-preview-body strong { color: #102c21; }
+.formatted-preview-body a { color: var(--green); font-weight: 700; }
 .attachment-row { margin: 20px 28px; padding: 12px 14px; background: var(--soft); border-radius: 8px; display: flex; align-items: center; gap: 11px; }
 .attachment-row > span { color: var(--green); }
 .attachment-row b, .attachment-row small { display: block; font-size: 10px; }
@@ -189,5 +196,7 @@ h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 25px;
   .editor-top, .send-footer { align-items: stretch; flex-direction: column; }
   .editor-card > label { grid-template-columns: 1fr; gap: 0; padding-top: 12px; }
   .editor-card > label input, .editor-card > label textarea { padding-top: 7px; }
+  .formatted-preview { margin: 16px; }
+  .formatted-preview-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
   .send-button { width: 100%; }
 }
