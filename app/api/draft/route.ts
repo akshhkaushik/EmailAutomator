@@ -146,7 +146,8 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
       companyName,
       opening: `I spent some time looking through ${companyName} and wanted to reach out directly.`,
       companyObservation: `What stood out was ${detail}.`,
-      pitch: `I could contribute by ${contribution}.`,
+      senderWork: profile.context || "I build practical product experiences and workflow automation.",
+      pitch: `As a small first contribution, I could help with ${contribution}.`,
       projectBridge: "One relevant example of how I work is below.",
       closing: "If that direction is useful, I would love to compare notes and explore contributing to the team.",
       selectedProjects,
@@ -192,6 +193,7 @@ function composeEmail(input: {
   companyName: string;
   opening: string;
   companyObservation: string;
+  senderWork: string;
   pitch: string;
   projectBridge: string;
   closing: string;
@@ -203,16 +205,19 @@ function composeEmail(input: {
     `Hi ${cleanGeneratedText(input.recipient)},`,
     cleanGeneratedText(input.opening),
     bold(input.companyObservation),
-    bold(input.pitch),
+    cleanGeneratedText(input.senderWork),
   ];
   if (input.selectedProjects.length > 0) {
     paragraphs.push(cleanGeneratedText(input.projectBridge), projectLinks(input.selectedProjects));
   }
   paragraphs.push(
+    bold(input.pitch),
     cleanGeneratedText(input.closing),
-    "I’ve attached my résumé for context.",
-    `Best,\n${cleanGeneratedText(profile.name || "Your name")}`,
   );
+  if (!/\b(?:résumé|resume)\b/i.test(paragraphs.join(" "))) {
+    paragraphs.push("I’ve attached my résumé for context.");
+  }
+  paragraphs.push(`Best,\n${cleanGeneratedText(profile.name || "Your name")}`);
   const links = [
     profile.portfolio && `[Portfolio](${profile.portfolio})`,
     profile.linkedin && `[LinkedIn](${profile.linkedin})`,
@@ -280,7 +285,7 @@ export async function POST(request: Request) {
         },
         contributionIdeas: {
           type: "array",
-          items: { type: "string", description: "A specific build, improvement, or experiment the sender could realistically contribute." },
+          items: { type: "string", description: "A small, specific feature, improvement, or experiment the sender could realistically deliver as an initial contribution." },
           minItems: 2,
           maxItems: 4,
         },
@@ -309,9 +314,13 @@ export async function POST(request: Request) {
           type: "string",
           description: "One or two complete sentences showing a concrete understanding of a real company product, audience, workflow, or priority.",
         },
+        senderWork: {
+          type: "string",
+          description: "One or two natural sentences presenting the sender's work, strengths, credentials, and reason for reaching out. Preserve every concrete fact and important intention from the required core email content and sender context, but adapt the wording to this company. Do not discuss the proposed company feature here.",
+        },
         pitch: {
           type: "string",
-          description: "One or two complete sentences proposing a specific thing the sender could build or improve, who it helps, and the practical benefit.",
+          description: "One or two complete sentences proposing exactly one small, narrowly scoped company feature or improvement the sender could prototype in a few days, who it helps, and the practical benefit. Do not propose a new platform, broad toolkit, or multi-feature product.",
         },
         projectBridge: {
           type: "string",
@@ -322,14 +331,14 @@ export async function POST(request: Request) {
           description: "A natural, low-pressure call to action asking to contribute, discuss the idea, or join the team. Do not include a sign-off or sender name.",
         },
       },
-      required: ["companyName", "companySummary", "evidence", "contributionIdeas", "selectedProjects", "subject", "opening", "companyObservation", "pitch", "projectBridge", "closing"],
+      required: ["companyName", "companySummary", "evidence", "contributionIdeas", "selectedProjects", "subject", "opening", "companyObservation", "senderWork", "pitch", "projectBridge", "closing"],
     };
 
     const aiRequest = {
       store: false,
       instructions:
-        "You are a product-minded researcher and excellent job-outreach writer. Write a fresh email for this company rather than filling a fixed template. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Then identify one realistic, non-generic contribution the sender could make using their stated skills: name what they could build or improve, the user or workflow it helps, and the practical benefit. Every claim must be traceable to the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Vary the wording and flow naturally for this specific company. Treat the sender's writing sample as optional tone guidance only: do not copy its sentences, structure, or placeholders. Avoid vague language such as 'enhance the user experience', 'drive innovation', or 'contribute across engineering' unless followed by a specific deliverable. When at least one sender project is supplied, select the strongest matching one (or two only if both are clearly useful). Copy selected project titles and URLs exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
-      input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context: ${profile.context || ""}\nOptional writing sample (style inspiration only; never copy it): ${profile.template || "none"}\nSender projects (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
+        "You are a product-minded researcher and excellent job-outreach writer. Write one cohesive email with two equally important parts: (1) the sender's established story and work, which must appear in every email, and (2) one company-specific, small feature idea they could contribute. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Preserve every concrete sender fact, credential, work example, capability, intention, and ask from the REQUIRED CORE EMAIL CONTENT and sender context. You may rewrite and reorder that material naturally, but you must not omit it. Then propose exactly one narrowly scoped feature, improvement, or proof of concept that one engineer could prototype in a few days. It must be a single feature, not a new platform, broad toolkit, boilerplate suite, or sweeping strategy. Name the user or workflow it helps and the practical benefit. Every company claim must be traceable to the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Do not use generic praise such as 'impressed', 'incredible', 'innovative', or 'revolutionary'. Avoid vague language such as 'enhance the user experience', 'drive innovation', or 'contribute across engineering' unless followed by a specific deliverable. When at least one sender project is supplied, select the strongest matching one (or two only if both are clearly useful). Copy selected project titles and URLs exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
+      input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context (required in substance): ${profile.context || ""}\nREQUIRED CORE EMAIL CONTENT (preserve all meaningful sender information; wording may adapt): ${profile.template || "none provided"}\nSender projects (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
       text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
     };
 
@@ -415,6 +424,7 @@ export async function POST(request: Request) {
       subject: string;
       opening: string;
       companyObservation: string;
+      senderWork: string;
       pitch: string;
       projectBridge: string;
       closing: string;
@@ -443,6 +453,7 @@ export async function POST(request: Request) {
         companyName: result.companyName,
         opening: result.opening,
         companyObservation: result.companyObservation,
+        senderWork: result.senderWork,
         pitch: result.pitch,
         projectBridge: result.projectBridge,
         closing: result.closing,

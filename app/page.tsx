@@ -327,11 +327,11 @@ export default function Home() {
                 ))}
               </div>
               <label>
-                Writing sample (optional)
+                Core email content
                 <textarea rows={10} value={profile.template} onChange={(e) => updateProfile("template", e.target.value)} />
               </label>
               <div className="template-help">
-                Used only as tone inspiration. Signal writes a fresh structure for each company and may ignore or reshape this completely.
+                Required in every email: add the story, credentials, work, and intention you never want omitted. Signal may rewrite and reorder it, then adds a separate company-specific small feature pitch.
               </div>
             </div>
           )}
