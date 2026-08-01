@@ -101,13 +101,6 @@ function markdownLabel(value: string) {
   return value.replace(/[\[\]]/g, "").trim();
 }
 
-function insertBeforeSignOff(body: string, block: string) {
-  const signOff = /\n{2,}(?=(?:best(?: regards)?|kind regards|regards|sincerely|thanks|thank you),?\s*\n)/i;
-  const match = signOff.exec(body);
-  if (!match || match.index < 0) return `${body}\n\n${block}`;
-  return `${body.slice(0, match.index).trimEnd()}\n\n${block}\n\n${body.slice(match.index).trimStart()}`;
-}
-
 function extractOutputText(response: {
   output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
 }) {
@@ -148,14 +141,17 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
     ],
     selectedProjects,
     subject: `A contribution idea for ${companyName}`,
-    body: renderTemplate(profile.template, {
+    body: composeEmail({
       recipient: recipientName || "there",
-      company: bold(companyName),
-      company_detail: bold(detail),
-      contribution: bold(contribution),
-      projects: projectLinks(selectedProjects),
-      name: profile.name || "Your name",
-    }, profile),
+      companyName,
+      opening: `I spent some time looking through ${companyName} and wanted to reach out directly.`,
+      companyObservation: `What stood out was ${detail}.`,
+      pitch: `I could contribute by ${contribution}.`,
+      projectBridge: "One relevant example of how I work is below.",
+      closing: "If that direction is useful, I would love to compare notes and explore contributing to the team.",
+      selectedProjects,
+      profile,
+    }),
     demo: true,
   };
 }
@@ -191,35 +187,38 @@ function projectLinks(projects: Array<{ title: string; liveUrl: string; repoUrl:
   }).join("\n");
 }
 
-function renderTemplate(
-  template: string | undefined,
-  values: Record<string, string>,
-  profile: Profile,
-) {
-  const defaultTemplate = "Hi {{recipient}},\n\nI was impressed by {{company_detail}} at {{company}}.\n\nI’d love to contribute. I could help with {{contribution}}.\n\nI’ve attached my résumé and would be glad to share a few concrete ideas.\n\nBest,\n{{name}}";
-  let body = template?.trim() || defaultTemplate;
-  const additions: string[] = [];
-  if (!body.includes("{{company_detail}}")) {
-    additions.push("What stood out to me about {{company}} is {{company_detail}}.");
+function composeEmail(input: {
+  recipient: string;
+  companyName: string;
+  opening: string;
+  companyObservation: string;
+  pitch: string;
+  projectBridge: string;
+  closing: string;
+  selectedProjects: Array<{ title: string; liveUrl: string; repoUrl: string; reason: string }>;
+  profile: Profile;
+}) {
+  const { profile } = input;
+  const paragraphs = [
+    `Hi ${cleanGeneratedText(input.recipient)},`,
+    cleanGeneratedText(input.opening),
+    bold(input.companyObservation),
+    bold(input.pitch),
+  ];
+  if (input.selectedProjects.length > 0) {
+    paragraphs.push(cleanGeneratedText(input.projectBridge), projectLinks(input.selectedProjects));
   }
-  if (!body.includes("{{contribution}}")) {
-    additions.push("Based on that, I’d be excited to help with {{contribution}}.");
-  }
-  if (!body.includes("{{projects}}")) {
-    additions.push("Relevant work:\n{{projects}}");
-  }
-  if (additions.length) body = insertBeforeSignOff(body, additions.join("\n\n"));
-  const hasSignOff = /(?:^|\n)(?:best(?: regards)?|kind regards|regards|sincerely|thanks|thank you),?\s*\n/i.test(body);
-  if (!body.includes("{{name}}") && !hasSignOff) body += "\n\nBest,\n{{name}}";
-  for (const [key, value] of Object.entries(values)) {
-    body = body.replaceAll(`{{${key}}}`, value);
-  }
+  paragraphs.push(
+    cleanGeneratedText(input.closing),
+    "I’ve attached my résumé for context.",
+    `Best,\n${cleanGeneratedText(profile.name || "Your name")}`,
+  );
   const links = [
     profile.portfolio && `[Portfolio](${profile.portfolio})`,
     profile.linkedin && `[LinkedIn](${profile.linkedin})`,
   ].filter(Boolean);
-  if (links.length) body += `\n\n${links.join(" · ")}`;
-  return body;
+  if (links.length) paragraphs.push(links.join(" · "));
+  return paragraphs.filter(Boolean).join("\n\n");
 }
 
 export async function POST(request: Request) {
@@ -302,23 +301,35 @@ export async function POST(request: Request) {
           },
         },
         subject: { type: "string", description: "A natural 4-9 word subject mentioning a specific company product, focus, or useful contribution idea." },
-        companyDetail: {
+        opening: {
           type: "string",
-          description: "A concise noun phrase naming a real company product, workflow, audience, or current focus; it must fit after 'I was interested in' and have no terminal punctuation.",
+          description: "One natural opening sentence specific to why the sender is contacting this company. Do not use generic praise and do not include a greeting.",
         },
-        contribution: {
+        companyObservation: {
           type: "string",
-          description: "A concrete pitch describing what the sender could build or improve, for whom, and the likely practical benefit; it must fit after 'I could help with' and have no terminal punctuation.",
+          description: "One or two complete sentences showing a concrete understanding of a real company product, audience, workflow, or priority.",
+        },
+        pitch: {
+          type: "string",
+          description: "One or two complete sentences proposing a specific thing the sender could build or improve, who it helps, and the practical benefit.",
+        },
+        projectBridge: {
+          type: "string",
+          description: "One short sentence naturally connecting the selected work sample to the proposed contribution. Do not repeat its URL.",
+        },
+        closing: {
+          type: "string",
+          description: "A natural, low-pressure call to action asking to contribute, discuss the idea, or join the team. Do not include a sign-off or sender name.",
         },
       },
-      required: ["companyName", "companySummary", "evidence", "contributionIdeas", "selectedProjects", "subject", "companyDetail", "contribution"],
+      required: ["companyName", "companySummary", "evidence", "contributionIdeas", "selectedProjects", "subject", "opening", "companyObservation", "pitch", "projectBridge", "closing"],
     };
 
     const aiRequest = {
       store: false,
       instructions:
-        "You are a product-minded researcher writing respectful job outreach. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Then identify one realistic, non-generic contribution the sender could make using their stated skills: name what they could build or improve, the user or workflow it helps, and the practical benefit. Every claim must be traceable to the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. companyDetail must name a real product, workflow, audience, or initiative and fit after 'I was interested in'. contribution must be a concrete pitch and fit after 'I could help with'. Do not end either phrase with punctuation. Avoid vague language such as 'enhance the user experience', 'drive innovation', or 'contribute across engineering' unless followed by a specific deliverable. Select at most two supplied projects only when they genuinely prove the proposed contribution. Copy every selected project title and URL exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
-      input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context: ${profile.context || ""}\nSender projects (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
+        "You are a product-minded researcher and excellent job-outreach writer. Write a fresh email for this company rather than filling a fixed template. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Then identify one realistic, non-generic contribution the sender could make using their stated skills: name what they could build or improve, the user or workflow it helps, and the practical benefit. Every claim must be traceable to the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Vary the wording and flow naturally for this specific company. Treat the sender's writing sample as optional tone guidance only: do not copy its sentences, structure, or placeholders. Avoid vague language such as 'enhance the user experience', 'drive innovation', or 'contribute across engineering' unless followed by a specific deliverable. When at least one sender project is supplied, select the strongest matching one (or two only if both are clearly useful). Copy selected project titles and URLs exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
+      input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context: ${profile.context || ""}\nOptional writing sample (style inspiration only; never copy it): ${profile.template || "none"}\nSender projects (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
       text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
     };
 
@@ -402,15 +413,24 @@ export async function POST(request: Request) {
       contributionIdeas: string[];
       selectedProjects: Array<{ title: string; liveUrl: string; repoUrl: string; reason: string }>;
       subject: string;
-      companyDetail: string;
-      contribution: string;
+      opening: string;
+      companyObservation: string;
+      pitch: string;
+      projectBridge: string;
+      closing: string;
     };
     const allowedProjects = new Map(projects.map((project) => [project.liveUrl, project]));
-    const selectedProjects = result.selectedProjects.flatMap((project) => {
+    let selectedProjects = result.selectedProjects.flatMap((project) => {
       const allowed = allowedProjects.get(project.liveUrl);
       if (!allowed || allowed.title !== project.title) return [];
       return [{ ...allowed, reason: project.reason }];
     }).slice(0, 2);
+    if (selectedProjects.length === 0 && projects.length > 0) {
+      selectedProjects = [{
+        ...projects[0],
+        reason: "A relevant example of the sender’s product and engineering work.",
+      }];
+    }
     return Response.json({
       companyName: result.companyName,
       companySummary: result.companySummary,
@@ -418,14 +438,17 @@ export async function POST(request: Request) {
       contributionIdeas: result.contributionIdeas,
       selectedProjects,
       subject: result.subject,
-      body: renderTemplate(profile.template, {
+      body: composeEmail({
         recipient: payload.recipientName || "there",
-        company: bold(result.companyName),
-        company_detail: bold(result.companyDetail),
-        contribution: bold(result.contribution),
-        projects: projectLinks(selectedProjects),
-        name: profile.name || "Your name",
-      }, profile),
+        companyName: result.companyName,
+        opening: result.opening,
+        companyObservation: result.companyObservation,
+        pitch: result.pitch,
+        projectBridge: result.projectBridge,
+        closing: result.closing,
+        selectedProjects,
+        profile,
+      }),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not research this company.";

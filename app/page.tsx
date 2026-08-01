@@ -327,11 +327,11 @@ export default function Home() {
                 ))}
               </div>
               <label>
-                Base template
+                Writing sample (optional)
                 <textarea rows={10} value={profile.template} onChange={(e) => updateProfile("template", e.target.value)} />
               </label>
               <div className="template-help">
-                Available: {"{{recipient}} {{company}} {{company_detail}} {{contribution}} {{projects}} {{name}}"}
+                Used only as tone inspiration. Signal writes a fresh structure for each company and may ignore or reshape this completely.
               </div>
             </div>
           )}
@@ -424,17 +424,24 @@ export default function Home() {
                 </div>
                 <label>To<input value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} /></label>
                 <label>Subject<input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
-                <label>Message<textarea rows={17} value={body} onChange={(e) => setBody(e.target.value)} /></label>
                 <div className="formatted-preview">
                   <div className="formatted-preview-heading">
-                    <span>Formatted email preview</span>
-                    <small>Bold text and embedded links render like the sent email</small>
+                    <span>Email as the recipient will see it</span>
+                    <small>Project titles below are real embedded links</small>
                   </div>
                   <div
                     className="formatted-preview-body"
                     dangerouslySetInnerHTML={{ __html: markdownToHtml(body) }}
                   />
                 </div>
+                <details className="source-editor">
+                  <summary>Edit email wording</summary>
+                  <label>
+                    Message source
+                    <textarea rows={17} value={body} onChange={(e) => setBody(e.target.value)} />
+                  </label>
+                  <p>Use **bold text** and [linked text](https://example.com). The recipient receives the formatted version above.</p>
+                </details>
                 <div className="attachment-row"><span>▣</span><div><b>{resume?.name || "No résumé attached"}</b><small>{resume ? "Will be attached to this email" : "Choose a file above before sending"}</small></div></div>
                 <div className="send-footer">
                   <p><b>You are in control.</b><br />Signal will send exactly what you see above.</p>

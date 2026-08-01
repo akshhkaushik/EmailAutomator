@@ -163,6 +163,11 @@ h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 25px;
 .formatted-preview-body { padding: 18px; color: var(--ink); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .formatted-preview-body strong { color: #102c21; }
 .formatted-preview-body a { color: var(--green); font-weight: 700; }
+.source-editor { margin: 0 28px 20px; border: 1px solid var(--line); border-radius: 9px; background: #fafbf8; }
+.source-editor summary { padding: 12px 14px; color: var(--green); cursor: pointer; font-size: 11px; font-weight: 800; }
+.source-editor label { display: block; padding: 0 14px 10px; }
+.source-editor textarea { min-height: 280px; background: #fff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.source-editor p { margin: 0; padding: 0 14px 13px; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .attachment-row { margin: 20px 28px; padding: 12px 14px; background: var(--soft); border-radius: 8px; display: flex; align-items: center; gap: 11px; }
 .attachment-row > span { color: var(--green); }
 .attachment-row b, .attachment-row small { display: block; font-size: 10px; }
@@ -197,6 +202,7 @@ h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 25px;
   .editor-card > label { grid-template-columns: 1fr; gap: 0; padding-top: 12px; }
   .editor-card > label input, .editor-card > label textarea { padding-top: 7px; }
   .formatted-preview { margin: 16px; }
+  .source-editor { margin: 0 16px 16px; }
   .formatted-preview-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
   .send-button { width: 100%; }
 }
