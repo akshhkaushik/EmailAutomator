@@ -1,10 +1,10 @@
-# Signal
+# Aksh Outreach
 
-Signal researches a company website, connects that research to your experience and projects, prepares a personalized job-outreach email, attaches your résumé, and sends through Gmail only after a final review.
+Aksh Outreach researches a company website, connects that research to your experience and projects, prepares a personalized job-outreach email, attaches your résumé, sends through Gmail only after a final review, and records observed email-open activity.
 
 ## What it does
 
-- Requires only a recipient work email to identify and research the company; a website override is available for personal email addresses or unusual domains.
+- Uses the recipient email, recipient name, and company website to research the correct company.
 - Uses a built-in, researched catalog of Aksh's 28 original GitHub project repositories and separates live, substantial, prototype, and learning evidence.
 - Saves the required core email content and optional personal overrides in the browser.
 - Selects up to two relevant projects without inventing titles, claims, ownership, maturity, or URLs.
@@ -12,8 +12,9 @@ Signal researches a company website, connects that research to your experience a
 - Produces an editable subject and message.
 - Appends Aksh's fixed BITS Pilani, GitHub, LinkedIn, portfolio, and email signature to every draft.
 - Starts every email with Aksh's BITS Pilani introduction, includes fixed linked examples for CEO Voice Platform, Veritas, EvoComb, and GLOB, then adds only non-duplicate relevant work and a humble company-specific idea.
-- Uses the consistent subject `I’d love to contribute to <Company>` and avoids decorative HTML, tracking, and bulk-send behavior.
-- Requests only the Gmail `gmail.send` scope, keeps short-lived access tokens in browser memory, and remembers the connection preference so Google can reconnect automatically on the same browser.
+- Uses the consistent subject `I’d love to contribute to <Company>` and avoids decorative HTML and bulk-send behavior.
+- Offers per-email open tracking through a unique transparent image and shows first open, latest open, repeat loads, and exact observed timestamps in a private analytics view.
+- Requests Gmail sending plus basic Google identity scopes, keeps short-lived access tokens in browser memory, and uses the verified Google identity to protect analytics data.
 - Requires an explicit approval before each send.
 
 ## Local setup
@@ -59,7 +60,11 @@ For local development, either:
 4. Set `OPENAI_API_KEY` as a direct-provider fallback.
 
 The model can be changed with `AI_MODEL`, using a Vercel provider/model identifier.
-When multiple providers are configured, Signal tries AI Gateway, Gemini, and then OpenAI.
+When multiple providers are configured, Aksh Outreach tries AI Gateway, Gemini, and then OpenAI.
+
+### Email analytics storage
+
+Connect **Upstash for Redis** from the Vercel Marketplace. Vercel injects the REST URL and token automatically. Local development can use `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
 
 ## Environment variables
 
@@ -72,6 +77,8 @@ When multiple providers are configured, Signal tries AI Gateway, Gemini, and the
 | `GEMINI_MODEL` | Optional fallback | Server only | Direct Gemini model; defaults to `gemini-3.5-flash` |
 | `OPENAI_API_KEY` | Optional fallback | Secret, server only | Direct OpenAI access outside Vercel |
 | `OPENAI_MODEL` | Optional fallback | Server only | Direct OpenAI model; defaults to `gpt-5.4` |
+| `UPSTASH_REDIS_REST_URL` | Yes, for tracking | Secret, server only | Durable analytics storage URL |
+| `UPSTASH_REDIS_REST_TOKEN` | Yes, for tracking | Secret, server only | Durable analytics storage token |
 
 ## Deploy to Vercel
 
@@ -90,3 +97,5 @@ After the first deployment, add the exact production origin to the Google OAuth 
 - The résumé is read for the selected send and is not persisted by the app.
 - Company claims are restricted to readable content fetched from the supplied website.
 - Sending is single-recipient and review-first.
+- Analytics records are isolated by the verified connected Google email address and expire after one year.
+- Open tracking is approximate: image proxies and security scanners may create loads, while image blocking may hide genuine reads. The UI describes events as observed loads rather than guaranteed human opens.

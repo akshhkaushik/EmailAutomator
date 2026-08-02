@@ -1,4 +1,11 @@
 import { markdownToHtml, markdownToPlain } from "@/lib/markdown";
+import {
+  createPendingTrackingRecord,
+  markTrackingRecordSent,
+  removeTrackingRecord,
+  trackingStorageReady,
+  verifyGoogleAccessToken,
+} from "@/lib/tracking";
 
 function utf8Base64(value: string) {
   const bytes = new TextEncoder().encode(value);
@@ -17,13 +24,20 @@ function cleanHeader(value: unknown, label: string) {
 }
 
 export async function POST(request: Request) {
+  let trackingId = "";
+  let trackingPrepared = false;
   try {
     const auth = request.headers.get("authorization");
     if (!auth?.startsWith("Bearer ")) return Response.json({ error: "Connect Gmail before sending." }, { status: 401 });
+    const identity = await verifyGoogleAccessToken(auth);
     const payload = await request.json() as {
       to?: string;
       subject?: string;
       body?: string;
+      recipientName?: string;
+      companyName?: string;
+      companyUrl?: string;
+      trackOpens?: boolean;
       resume?: { name?: string; type?: string; base64?: string };
     };
     const to = cleanHeader(payload.to, "recipient");
@@ -35,6 +49,25 @@ export async function POST(request: Request) {
     const resumeType = cleanHeader(payload.resume?.type || "application/pdf", "résumé type");
     const attachment = payload.resume?.base64 || "";
     if (!attachment || attachment.length > 11_200_000) throw new Error("Attach a résumé smaller than 8 MB.");
+
+    const trackOpens = payload.trackOpens !== false;
+    if (trackOpens && !trackingStorageReady()) {
+      return Response.json({ error: "Open tracking storage is not connected yet. Connect Upstash Redis in Vercel or turn off open tracking for this email." }, { status: 503 });
+    }
+    trackingId = crypto.randomUUID();
+    trackingPrepared = await createPendingTrackingRecord({
+      id: trackingId,
+      senderEmail: identity.email,
+      recipientEmail: to,
+      recipientName: typeof payload.recipientName === "string" ? payload.recipientName.trim().slice(0, 100) : "",
+      companyName: typeof payload.companyName === "string" ? payload.companyName.trim().slice(0, 160) : "",
+      companyUrl: typeof payload.companyUrl === "string" ? payload.companyUrl.trim().slice(0, 500) : "",
+      subject,
+      trackingEnabled: trackOpens,
+    });
+    const trackingPixel = trackOpens && trackingPrepared
+      ? `<img src="${new URL(`/api/track/${trackingId}`, request.url).toString()}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;opacity:0" />`
+      : "";
 
     const mixed = `signal-mixed-${crypto.randomUUID()}`;
     const alternative = `signal-alt-${crypto.randomUUID()}`;
@@ -59,7 +92,7 @@ export async function POST(request: Request) {
       'Content-Type: text/html; charset="UTF-8"',
       "Content-Transfer-Encoding: base64",
       "",
-      utf8Base64(`<div style="font-family:Arial,sans-serif;line-height:1.65;color:#17201b">${markdownToHtml(body)}</div>`),
+      utf8Base64(`<div style="font-family:Arial,sans-serif;line-height:1.65;color:#17201b">${markdownToHtml(body)}${trackingPixel}</div>`),
       "",
       `--${alternative}--`,
       "",
@@ -80,13 +113,39 @@ export async function POST(request: Request) {
     });
     const gmailResult = await gmailResponse.json() as { id?: string; error?: { message?: string } };
     if (!gmailResponse.ok) {
+      if (trackingPrepared) await removeTrackingRecord(trackingId);
       const message = gmailResponse.status === 401
         ? "Your Gmail permission expired. Reconnect Gmail and try again."
         : gmailResult.error?.message || "Gmail rejected the message.";
       return Response.json({ error: message }, { status: gmailResponse.status });
     }
-    return Response.json({ id: gmailResult.id });
+    let trackedRecord = null;
+    let trackingWarning = "";
+    if (trackingPrepared && gmailResult.id) {
+      try {
+        trackedRecord = await markTrackingRecordSent(trackingId, gmailResult.id);
+      } catch (trackingError) {
+        console.error("Email sent but analytics finalization failed", trackingError);
+        trackingPrepared = false;
+        trackingWarning = "The email was sent, but its analytics record could not be finalized.";
+      }
+    }
+    return Response.json({
+      id: gmailResult.id,
+      trackingId: trackedRecord?.id || null,
+      tracked: Boolean(trackedRecord?.trackingEnabled),
+      sentAt: trackedRecord?.sentAt || new Date().toISOString(),
+      warning: trackingWarning || undefined,
+    });
   } catch (error) {
+    if (trackingPrepared && trackingId) {
+      try {
+        await removeTrackingRecord(trackingId);
+      } catch (cleanupError) {
+        console.error("Tracking cleanup failed", cleanupError);
+      }
+    }
+    console.error("Email send failed", error);
     return Response.json({ error: error instanceof Error ? error.message : "The email was not sent." }, { status: 400 });
   }
 }
