@@ -65,6 +65,59 @@ function textFromHtml(html: string, limit = 22_000) {
     .slice(0, limit);
 }
 
+function decodeHtml(value: string) {
+  const decodeCodePoint = (code: string, radix: number) => {
+    const numeric = Number.parseInt(code, radix);
+    return Number.isInteger(numeric) && numeric >= 0 && numeric <= 0x10ffff
+      ? String.fromCodePoint(numeric)
+      : " ";
+  };
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_match, code: string) => decodeCodePoint(code, 10))
+    .replace(/&#x([\da-f]+);/gi, (_match, code: string) => decodeCodePoint(code, 16))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function htmlAttribute(tag: string, name: string) {
+  const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, "i"));
+  return match ? decodeHtml(match[2]) : "";
+}
+
+function metadataFromHtml(html: string) {
+  const facts: string[] = [];
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  if (title) facts.push(`Page title: ${decodeHtml(title)}`);
+
+  const usefulMetadata = new Set([
+    "description", "application-name", "keywords",
+    "og:title", "og:description", "og:site_name",
+    "twitter:title", "twitter:description",
+  ]);
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = match[0];
+    const key = (htmlAttribute(tag, "name") || htmlAttribute(tag, "property")).toLowerCase();
+    const content = htmlAttribute(tag, "content");
+    if (usefulMetadata.has(key) && content) facts.push(`${key}: ${content}`);
+  }
+  return [...new Set(facts)].join("\n").slice(0, 8_000);
+}
+
+function researchTextFromHtml(html: string, limit = 22_000) {
+  const metadata = metadataFromHtml(html);
+  const visibleText = textFromHtml(html, limit);
+  return [metadata, visibleText && !metadata.includes(visibleText) ? visibleText : ""]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, limit);
+}
+
 const RESEARCH_PATH_HINTS = [
   "product", "platform", "solution", "feature", "about", "company", "customer", "career", "job", "blog",
 ];
@@ -330,15 +383,33 @@ export async function POST(request: Request) {
       homePage = await fetchResearchPage(companyUrl.toString());
     }
     const researchBase = normalizeUrl(homePage.url);
+    const seedPages = [homePage];
+    if (researchBase.pathname !== "/" || researchBase.search) {
+      try {
+        const rootPage = await fetchResearchPage(researchBase.origin);
+        if (rootPage.url !== homePage.url || rootPage.html !== homePage.html) seedPages.push(rootPage);
+      } catch {
+        // The supplied route is still usable when the root homepage cannot be fetched.
+      }
+    }
+    const linkedCandidates = [...new Set(seedPages.flatMap((page) =>
+      researchLinks(page.html, normalizeUrl(page.url)),
+    ))].slice(0, 4);
     const linkedPages = await Promise.allSettled(
-      researchLinks(homePage.html, researchBase).map((url) => fetchResearchPage(url)),
+      linkedCandidates.map((url) => fetchResearchPage(url)),
     );
-    const pages = [
-      { url: homePage.url, text: textFromHtml(homePage.html) },
+    const pageCandidates = [
+      ...seedPages.map((page) => ({ url: page.url, text: researchTextFromHtml(page.html) })),
       ...linkedPages.flatMap((result) => result.status === "fulfilled"
-        ? [{ url: result.value.url, text: textFromHtml(result.value.html, 16_000) }]
+        ? [{ url: result.value.url, text: researchTextFromHtml(result.value.html, 16_000) }]
         : []),
-    ].filter((page) => page.text.length >= 120);
+    ];
+    const seenResearchText = new Set<string>();
+    const pages = pageCandidates.filter((page) => {
+      if (page.text.length < 80 || seenResearchText.has(page.text)) return false;
+      seenResearchText.add(page.text);
+      return true;
+    });
     if (pages.length === 0) throw new Error("The company website did not contain enough readable information.");
     const websiteText = pages
       .map((page) => `SOURCE: ${page.url}\n${page.text}`)
