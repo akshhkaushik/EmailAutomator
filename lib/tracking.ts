@@ -16,6 +16,7 @@ export type TrackingRecord = {
   gmailMessageId: string;
   status: "sending" | "sent";
   trackingEnabled: boolean;
+  selfTest: boolean;
   sentAt: string | null;
   firstOpenedAt: string | null;
   lastOpenedAt: string | null;
@@ -47,6 +48,17 @@ export function trackingStorageReady() {
     (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL) &&
     (process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN),
   );
+}
+
+export function sameGoogleMailbox(first: string, second: string) {
+  const normalize = (value: string) => {
+    const [rawLocal = "", rawDomain = ""] = value.trim().toLowerCase().split("@");
+    const domain = rawDomain === "googlemail.com" ? "gmail.com" : rawDomain;
+    const withoutAlias = rawLocal.split("+")[0];
+    const local = domain === "gmail.com" ? withoutAlias.replace(/\./g, "") : withoutAlias;
+    return `${local}@${domain}`;
+  };
+  return Boolean(first && second && normalize(first) === normalize(second));
 }
 
 export async function createPendingTrackingRecord(input: Omit<TrackingRecord, "gmailMessageId" | "status" | "sentAt" | "firstOpenedAt" | "lastOpenedAt" | "openCount" | "opens">) {

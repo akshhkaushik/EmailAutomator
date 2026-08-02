@@ -1,21 +1,27 @@
-import { listTrackingRecords, trackingStorageReady, verifyGoogleAccessToken } from "@/lib/tracking";
+import { listTrackingRecords, sameGoogleMailbox, trackingStorageReady, verifyGoogleAccessToken } from "@/lib/tracking";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
     const identity = await verifyGoogleAccessToken(request.headers.get("authorization"));
-    const emails = await listTrackingRecords(identity.email);
-    const opened = emails.filter((email) => email.firstOpenedAt).length;
-    const totalOpenEvents = emails.reduce((total, email) => total + email.openCount, 0);
+    const records = await listTrackingRecords(identity.email);
+    const emails = records.map((email) => ({
+      ...email,
+      selfTest: email.selfTest || sameGoogleMailbox(email.senderEmail, email.recipientEmail),
+    }));
+    const measuredEmails = emails.filter((email) => !email.selfTest);
+    const opened = measuredEmails.filter((email) => email.firstOpenedAt).length;
+    const totalOpenEvents = measuredEmails.reduce((total, email) => total + email.openCount, 0);
     return Response.json({
       configured: trackingStorageReady(),
       generatedAt: new Date().toISOString(),
       stats: {
-        sent: emails.length,
+        sent: measuredEmails.length,
+        selfTests: emails.length - measuredEmails.length,
         opened,
-        unopened: emails.length - opened,
-        openRate: emails.length ? Math.round((opened / emails.length) * 1000) / 10 : 0,
+        unopened: measuredEmails.length - opened,
+        openRate: measuredEmails.length ? Math.round((opened / measuredEmails.length) * 1000) / 10 : 0,
         totalOpenEvents,
       },
       emails,

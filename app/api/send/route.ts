@@ -4,6 +4,7 @@ import {
   markTrackingRecordSent,
   removeTrackingRecord,
   trackingStorageReady,
+  sameGoogleMailbox,
   verifyGoogleAccessToken,
 } from "@/lib/tracking";
 
@@ -50,8 +51,10 @@ export async function POST(request: Request) {
     const attachment = payload.resume?.base64 || "";
     if (!attachment || attachment.length > 11_200_000) throw new Error("Attach a résumé smaller than 8 MB.");
 
-    const trackOpens = payload.trackOpens !== false;
-    if (trackOpens && !trackingStorageReady()) {
+    const selfTest = sameGoogleMailbox(to, identity.email);
+    const requestedTracking = payload.trackOpens !== false;
+    const trackOpens = requestedTracking && !selfTest;
+    if (requestedTracking && !selfTest && !trackingStorageReady()) {
       return Response.json({ error: "Open tracking storage is not connected yet. Connect Upstash Redis in Vercel or turn off open tracking for this email." }, { status: 503 });
     }
     trackingId = crypto.randomUUID();
@@ -64,6 +67,7 @@ export async function POST(request: Request) {
       companyUrl: typeof payload.companyUrl === "string" ? payload.companyUrl.trim().slice(0, 500) : "",
       subject,
       trackingEnabled: trackOpens,
+      selfTest,
     });
     const trackingPixel = trackOpens && trackingPrepared
       ? `<img src="${new URL(`/api/track/${trackingId}`, request.url).toString()}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;opacity:0" />`
@@ -120,7 +124,9 @@ export async function POST(request: Request) {
       return Response.json({ error: message }, { status: gmailResponse.status });
     }
     let trackedRecord = null;
-    let trackingWarning = "";
+    let trackingWarning = selfTest
+      ? "Email sent as a self-test. Open tracking was disabled because Gmail cannot distinguish your Sent-folder view from a recipient open."
+      : "";
     if (trackingPrepared && gmailResult.id) {
       try {
         trackedRecord = await markTrackingRecordSent(trackingId, gmailResult.id);
@@ -134,6 +140,7 @@ export async function POST(request: Request) {
       id: gmailResult.id,
       trackingId: trackedRecord?.id || null,
       tracked: Boolean(trackedRecord?.trackingEnabled),
+      selfTest,
       sentAt: trackedRecord?.sentAt || new Date().toISOString(),
       warning: trackingWarning || undefined,
     });

@@ -93,9 +93,10 @@ After the first deployment, add the exact production origin to the Google OAuth 
 ## Safety and privacy
 
 - Signal never stores a Gmail password.
-- Gmail access tokens remain short-lived, are refreshed silently while the app is open, and are reacquired automatically on later visits when the existing Google grant is still valid. Disconnecting revokes the grant and clears the browser preference.
+- Gmail access tokens remain short-lived. A still-valid token is retained on this browser across reloads, refreshed shortly before expiry while the app is open, and reacquired silently on later visits when Google permits it. Disconnecting revokes the grant and clears the browser token and preference.
 - The résumé is read for the selected send and is not persisted by the app.
 - Company claims are restricted to readable content fetched from the supplied website.
 - Sending is single-recipient and review-first.
 - Analytics records are isolated by the verified connected Google email address and expire after one year.
+- Messages sent to the same verified Google mailbox are stored as self-tests without a tracking pixel and are excluded from sent/open/open-rate metrics. Existing same-mailbox test records are also classified and excluded when analytics load.
 - Open tracking is approximate: image proxies and security scanners may create loads, while image blocking may hide genuine reads. The UI describes events as observed loads rather than guaranteed human opens.

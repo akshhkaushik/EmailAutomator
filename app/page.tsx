@@ -37,6 +37,7 @@ type TrackedEmail = {
   subject: string;
   gmailMessageId: string;
   trackingEnabled: boolean;
+  selfTest: boolean;
   sentAt: string | null;
   firstOpenedAt: string | null;
   lastOpenedAt: string | null;
@@ -46,7 +47,7 @@ type TrackedEmail = {
 type Analytics = {
   configured: boolean;
   generatedAt: string;
-  stats: { sent: number; opened: number; unopened: number; openRate: number; totalOpenEvents: number };
+  stats: { sent: number; selfTests: number; opened: number; unopened: number; openRate: number; totalOpenEvents: number };
   emails: TrackedEmail[];
 };
 
@@ -62,6 +63,26 @@ const initialProfile: Profile = {
 
 const PROFILE_STORAGE_KEY = "signal-profile";
 const GMAIL_CONNECTION_KEY = "signal-gmail-autoconnect";
+const GMAIL_TOKEN_KEY = "signal-gmail-token-v1";
+const TOKEN_EXPIRY_BUFFER_MS = 120_000;
+
+type CachedGmailToken = { accessToken: string; expiresAt: number };
+
+function readCachedGmailToken(): CachedGmailToken | null {
+  try {
+    const value = localStorage.getItem(GMAIL_TOKEN_KEY);
+    if (!value) return null;
+    const cached = JSON.parse(value) as Partial<CachedGmailToken>;
+    if (typeof cached.accessToken !== "string" || typeof cached.expiresAt !== "number" || cached.expiresAt <= Date.now() + TOKEN_EXPIRY_BUFFER_MS) {
+      localStorage.removeItem(GMAIL_TOKEN_KEY);
+      return null;
+    }
+    return { accessToken: cached.accessToken, expiresAt: cached.expiresAt };
+  } catch {
+    localStorage.removeItem(GMAIL_TOKEN_KEY);
+    return null;
+  }
+}
 
 declare global {
   interface Window {
@@ -134,6 +155,8 @@ export default function Home() {
           });
         } catch { localStorage.removeItem(PROFILE_STORAGE_KEY); }
       }
+      const cachedGmail = readCachedGmailToken();
+      if (cachedGmail) setGmailToken(cachedGmail.accessToken);
       setProfileRestored(true);
     }, 0);
     fetch("/api/config").then((response) => response.json()).then((data) => setGoogleClientId(data.googleClientId || "")).catch(() => undefined);
@@ -158,18 +181,24 @@ export default function Home() {
         const wasSilent = silentReconnectRef.current;
         silentReconnectRef.current = false;
         if (response.access_token) {
+          const expiresAt = Date.now() + (response.expires_in || 3600) * 1000;
           setGmailToken(response.access_token);
           localStorage.setItem(GMAIL_CONNECTION_KEY, "true");
+          localStorage.setItem(GMAIL_TOKEN_KEY, JSON.stringify({ accessToken: response.access_token, expiresAt }));
           setNotice(wasSilent ? "Gmail reconnected." : "Gmail connected.");
           if (tokenRefreshTimerRef.current) window.clearTimeout(tokenRefreshTimerRef.current);
-          tokenRefreshTimerRef.current = window.setTimeout(requestSilently, Math.max(((response.expires_in || 3600) - 120) * 1000, 60_000));
+          tokenRefreshTimerRef.current = window.setTimeout(requestSilently, Math.max(expiresAt - Date.now() - TOKEN_EXPIRY_BUFFER_MS, 60_000));
         } else if (wasSilent) {
           setGmailToken("");
+          localStorage.removeItem(GMAIL_TOKEN_KEY);
           setNotice("Reconnect Gmail once to continue.");
         } else setNotice("Gmail connection was not completed.");
       },
     });
-    if (localStorage.getItem(GMAIL_CONNECTION_KEY) === "true") requestSilently();
+    const cached = readCachedGmailToken();
+    if (cached) {
+      tokenRefreshTimerRef.current = window.setTimeout(requestSilently, Math.max(cached.expiresAt - Date.now() - TOKEN_EXPIRY_BUFFER_MS, 60_000));
+    } else if (localStorage.getItem(GMAIL_CONNECTION_KEY) === "true") requestSilently();
     return () => { if (tokenRefreshTimerRef.current) window.clearTimeout(tokenRefreshTimerRef.current); };
   }, [googleClientId, googleScriptReady]);
 
@@ -182,6 +211,10 @@ export default function Home() {
     try {
       const response = await fetch("/api/analytics", { headers: { Authorization: `Bearer ${gmailToken}` }, cache: "no-store" });
       const result = await response.json();
+      if (response.status === 401) {
+        localStorage.removeItem(GMAIL_TOKEN_KEY);
+        setGmailToken("");
+      }
       if (!response.ok) throw new Error(result.error || "Analytics could not be loaded.");
       setAnalytics(result);
     } catch (error) {
@@ -210,6 +243,7 @@ export default function Home() {
     const finish = () => {
       if (tokenRefreshTimerRef.current) window.clearTimeout(tokenRefreshTimerRef.current);
       localStorage.removeItem(GMAIL_CONNECTION_KEY);
+      localStorage.removeItem(GMAIL_TOKEN_KEY);
       setGmailToken(""); setAnalytics(null); setNotice("Gmail disconnected.");
     };
     if (gmailToken && window.google) window.google.accounts.oauth2.revoke(gmailToken, finish); else finish();
@@ -245,6 +279,10 @@ export default function Home() {
         }),
       });
       const result = await response.json();
+      if (response.status === 401) {
+        localStorage.removeItem(GMAIL_TOKEN_KEY);
+        setGmailToken("");
+      }
       if (!response.ok) throw new Error(result.error || "Gmail could not send this message.");
       setStatus("sent");
       setNotice(result.warning || (result.tracked ? "Email sent. Open tracking is active." : "Email sent without open tracking."));
@@ -264,7 +302,7 @@ export default function Home() {
           <button className={view === "compose" ? "active" : ""} aria-current={view === "compose" ? "page" : undefined} onClick={() => setView("compose")} type="button">Compose</button>
           <button className={view === "analytics" ? "active" : ""} aria-current={view === "analytics" ? "page" : undefined} onClick={() => setView("analytics")} type="button">Analytics</button>
         </nav>
-        <button className={`connection ${gmailToken ? "connected" : ""}`} onClick={gmailToken ? disconnectGmail : connectGmail} type="button">
+        <button className={`connection ${gmailToken ? "connected" : ""}`} title={gmailToken ? "Connected on this browser · click to disconnect" : "Connect Gmail"} onClick={gmailToken ? disconnectGmail : connectGmail} type="button">
           <span className="connection-dot" />{gmailToken ? "Gmail connected" : "Connect Gmail"}
         </button>
       </header>
@@ -317,7 +355,7 @@ export default function Home() {
                     <div className="email-preview" dangerouslySetInnerHTML={{ __html: markdownToHtml(body) }} />
                     <details className="source-editor"><summary>Edit message text</summary><textarea rows={18} aria-label="Message source" value={body} onChange={(event) => setBody(event.target.value)} /><p>Use **bold** and [linked text](https://example.com).</p></details>
                     <div className="send-options">
-                      <label className="tracking-control"><input type="checkbox" checked={trackOpens} onChange={(event) => setTrackOpens(event.target.checked)} /><span><b>Track opens</b><small>Adds a private one-pixel image. Times are observed loads and may include email-provider proxy activity.</small></span></label>
+                      <label className="tracking-control"><input type="checkbox" checked={trackOpens} onChange={(event) => setTrackOpens(event.target.checked)} /><span><b>Track opens</b><small>Adds a private one-pixel image. Automatically disabled when you send a test email to your own Gmail account.</small></span></label>
                       <div className="attachment-note"><span>▣</span><div><b>{resume?.name || "Résumé not attached"}</b><small>{resume ? "Ready to attach" : "Required before sending"}</small></div></div>
                     </div>
                     <footer className="send-footer"><p>The email is sent only when you press this button.</p><button className="send-button" type="button" disabled={status === "sending" || status === "sent"} onClick={sendEmail}>{status === "sending" ? "Sending…" : status === "sent" ? "Sent ✓" : gmailToken ? "Send email" : "Connect Gmail to send"}</button></footer>
@@ -347,12 +385,12 @@ function AnalyticsView({ analytics, loading, error, gmailConnected, onConnect, o
 }) {
   return <div className="page-wrap analytics-page">
     <header className="analytics-heading"><div><p className="kicker">Outreach analytics</p><h1>Know what happened after send.</h1><p>Open events are recorded to the second when the tracking image is requested.</p></div><button className="secondary-button" type="button" onClick={onRefresh} disabled={!gmailConnected || loading}>{loading ? "Refreshing…" : "Refresh data"}</button></header>
-    <div className="accuracy-note"><b>How to read this:</b> “Opened” means the tracking image was loaded. Gmail and Apple can proxy or pre-load images, while recipients who block images may read without creating an event.</div>
+    <div className="accuracy-note"><b>How to read this:</b> “Opened” means the tracking image was loaded. Gmail and Apple can proxy or pre-load images, while recipients who block images may read without creating an event. Emails sent to your own connected mailbox are treated as self-tests and excluded automatically.</div>
     {!gmailConnected ? <section className="panel analytics-empty"><span>↗</span><h2>Connect Gmail to see your private analytics</h2><p>Your connected Google identity is used to ensure only you can see recipient and open data.</p><button className="primary-button compact" type="button" onClick={onConnect}>Connect Gmail</button></section>
     : error ? <section className="panel analytics-empty"><h2>Analytics could not load</h2><p>{error}</p><button className="secondary-button" type="button" onClick={onRefresh}>Try again</button></section>
     : <>
       <section className="metric-grid" aria-label="Email metrics">
-        <div className="metric"><span>Sent</span><b>{analytics?.stats.sent ?? 0}</b><small>Recorded emails</small></div>
+        <div className="metric"><span>Sent</span><b>{analytics?.stats.sent ?? 0}</b><small>Excludes {analytics?.stats.selfTests ?? 0} self-test{analytics?.stats.selfTests === 1 ? "" : "s"}</small></div>
         <div className="metric"><span>Opened</span><b>{analytics?.stats.opened ?? 0}</b><small>Unique emails</small></div>
         <div className="metric"><span>Open rate</span><b>{analytics?.stats.openRate ?? 0}%</b><small>At least one observed load</small></div>
         <div className="metric"><span>Open events</span><b>{analytics?.stats.totalOpenEvents ?? 0}</b><small>Including repeat loads</small></div>
@@ -361,12 +399,12 @@ function AnalyticsView({ analytics, loading, error, gmailConnected, onConnect, o
         <div className="activity-heading"><div><h2>Email activity</h2><p>{analytics?.generatedAt ? `Updated ${formatTime(analytics.generatedAt)}` : "Waiting for the first refresh"}</p></div><span>{analytics?.emails.length ?? 0} total</span></div>
         {!analytics || analytics.emails.length === 0 ? <div className="table-empty"><h3>No tracked emails yet</h3><p>Send an email with “Track opens” enabled and it will appear here.</p></div>
         : <div className="email-list">{analytics.emails.map((email) => <article className="email-row" key={email.id}>
-          <div className="email-primary"><span className={`status-mark ${email.firstOpenedAt ? "opened" : ""}`} /> <div><b>{email.recipientName || email.recipientEmail}</b><small>{email.recipientEmail}</small></div></div>
+          <div className="email-primary"><span className={`status-mark ${!email.selfTest && email.firstOpenedAt ? "opened" : ""}`} /> <div><b>{email.recipientName || email.recipientEmail}</b><small>{email.recipientEmail}</small></div></div>
           <div className="email-subject"><b>{email.subject}</b><small>{email.companyName || hostFromUrl(email.companyUrl)}</small></div>
           <div className="email-time"><span>Sent</span><b>{formatTime(email.sentAt)}</b></div>
-          <div className="email-time"><span>{email.firstOpenedAt ? "First observed open" : email.trackingEnabled ? "Status" : "Tracking"}</span><b>{email.firstOpenedAt ? formatTime(email.firstOpenedAt) : email.trackingEnabled ? "Not observed" : "Off"}</b></div>
-          <div className="open-count"><b>{email.openCount}</b><span>load{email.openCount === 1 ? "" : "s"}</span></div>
-          {email.opens?.length > 0 && <details className="event-details"><summary>View observed event history</summary><div>{email.opens.map((event, index) => <p key={`${event.observedAt}-${index}`}><b>{formatTime(event.observedAt)}</b><span>{event.userAgent}</span></p>)}</div></details>}
+          <div className="email-time"><span>{email.selfTest ? "Status" : email.firstOpenedAt ? "First observed open" : email.trackingEnabled ? "Status" : "Tracking"}</span><b>{email.selfTest ? "Self-test · excluded" : email.firstOpenedAt ? formatTime(email.firstOpenedAt) : email.trackingEnabled ? "Not observed" : "Off"}</b></div>
+          <div className="open-count"><b>{email.selfTest ? "—" : email.openCount}</b><span>{email.selfTest ? "ignored" : `load${email.openCount === 1 ? "" : "s"}`}</span></div>
+          {email.opens?.length > 0 && <details className="event-details"><summary>{email.selfTest ? "View ignored load history" : "View observed event history"}</summary><div>{email.opens.map((event, index) => <p key={`${event.observedAt}-${index}`}><b>{formatTime(event.observedAt)}</b><span>{event.userAgent}</span></p>)}</div></details>}
         </article>)}</div>}
       </section>
     </>}
