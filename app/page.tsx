@@ -399,7 +399,7 @@ export default function Home() {
                 <div className="formatted-preview">
                   <div className="formatted-preview-heading">
                     <span>Email as the recipient will see it</span>
-                    <small>Project titles below are real embedded links</small>
+                    <small>Highlighted terms and project titles carry their links</small>
                   </div>
                   <div
                     className="formatted-preview-body"

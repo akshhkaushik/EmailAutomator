@@ -174,7 +174,7 @@ h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 25px;
 .formatted-preview-heading span { color: var(--ink); font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
 .formatted-preview-heading small { color: var(--muted); font-size: 9px; }
 .formatted-preview-body { padding: 18px; color: var(--ink); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
-.formatted-preview-body strong { color: #102c21; }
+.formatted-preview-body strong { color: #102c21; background: #eaf6ef; padding: 0 2px; border-radius: 3px; }
 .formatted-preview-body a { color: var(--green); font-weight: 700; }
 .source-editor { margin: 0 28px 20px; border: 1px solid var(--line); border-radius: 9px; background: #fafbf8; }
 .source-editor summary { padding: 12px 14px; color: var(--green); cursor: pointer; font-size: 11px; font-weight: 800; }

@@ -17,7 +17,10 @@ export function markdownToHtml(value: string) {
   );
 
   return withLinkTokens
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(
+      /\*\*([^*\n]+)\*\*/g,
+      '<strong style="font-weight:700;color:#102c21;background:#eaf6ef;padding:0 2px;border-radius:3px">$1</strong>',
+    )
     .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#235f46;text-decoration:underline">$1</a>')
     .replace(/%%SIGNAL_LINK_(\d+)%%/g, (_match, index: string) => links[Number(index)] || "")
     .replace(/\n/g, "<br>");
