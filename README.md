@@ -10,6 +10,7 @@ Signal researches a company website, connects that research to your experience a
 - Selects up to two relevant projects without inventing titles, claims, ownership, maturity, or URLs.
 - Embeds live-project and repository links under their proper project titles.
 - Produces an editable subject and message.
+- Appends Aksh's fixed BITS Pilani, GitHub, LinkedIn, portfolio, and email signature to every draft.
 - Requests only the Gmail `gmail.send` scope, keeps short-lived access tokens in browser memory, and remembers the connection preference so Google can reconnect automatically on the same browser.
 - Requires an explicit approval before each send.
 

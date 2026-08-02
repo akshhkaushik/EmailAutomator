@@ -24,6 +24,22 @@ const PERSONAL_EMAIL_HOSTS = new Set([
   "example.com",
 ]);
 
+const EMAIL_SIGNATURE = [
+  "Best regards,",
+  "",
+  "Aksh Kaushik",
+  "",
+  "BITS Pilani",
+  "",
+  "GitHub: https://github.com/akshhkaushik",
+  "",
+  "LinkedIn: https://www.linkedin.com/in/aksh-kaushik-047187317/",
+  "",
+  "Portfolio: https://akshhkaushik.github.io",
+  "",
+  "Email: f20240903@pilani.bits-pilani.ac.in",
+].join("\n");
+
 function normalizeUrl(input: unknown) {
   if (typeof input !== "string") throw new Error("Enter a valid company website.");
   const url = new URL(input);
@@ -258,7 +274,6 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
       closing: "If that direction is useful, I would love to compare notes and explore contributing to the team.",
       highlightTerms: ["small first contribution", "proof of concept", profile.role || "target role"],
       selectedProjects,
-      profile,
     }),
     demo: true,
   };
@@ -317,9 +332,7 @@ function composeEmail(input: {
   closing: string;
   highlightTerms?: string[];
   selectedProjects: Array<{ title: string; liveUrl: string; repoUrl: string; reason: string }>;
-  profile: Profile;
 }) {
-  const { profile } = input;
   const paragraphs = [
     `Hi ${cleanGeneratedText(input.recipient)},`,
     linkCompany(input.opening, input.companyName, input.companyUrl),
@@ -336,12 +349,7 @@ function composeEmail(input: {
   if (!/(?:résumé|resume)/i.test(paragraphs.join(" "))) {
     paragraphs.push("I’ve attached my résumé for context.");
   }
-  paragraphs.push(`Best,\n${cleanGeneratedText(profile.name || "Your name")}`);
-  const links = [
-    profile.portfolio && `[Portfolio](${profile.portfolio})`,
-    profile.linkedin && `[LinkedIn](${profile.linkedin})`,
-  ].filter(Boolean);
-  if (links.length) paragraphs.push(links.join(" · "));
+  paragraphs.push(EMAIL_SIGNATURE);
   return paragraphs.filter(Boolean).join("\n\n");
 }
 
@@ -616,7 +624,6 @@ export async function POST(request: Request) {
         closing: result.closing,
         highlightTerms: result.highlightTerms,
         selectedProjects,
-        profile,
       }),
     });
   } catch (error) {
