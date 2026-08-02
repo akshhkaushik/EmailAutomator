@@ -4,9 +4,10 @@ Signal researches a company website, connects that research to your experience a
 
 ## What it does
 
-- Accepts a company URL, recipient email, optional recipient name, and résumé.
-- Saves your personal context and project catalog in your browser.
-- Selects up to two relevant projects without inventing titles, claims, or URLs.
+- Requires only a recipient work email to identify and research the company; a website override is available for personal email addresses or unusual domains.
+- Uses a built-in, researched catalog of Aksh's 28 original GitHub project repositories and separates live, substantial, prototype, and learning evidence.
+- Saves the required core email content and optional personal overrides in the browser.
+- Selects up to two relevant projects without inventing titles, claims, ownership, maturity, or URLs.
 - Embeds live-project and repository links under their proper project titles.
 - Produces an editable subject and message.
 - Requests only the Gmail `gmail.send` scope and keeps its access token in browser memory.

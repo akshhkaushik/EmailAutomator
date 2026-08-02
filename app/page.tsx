@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown";
 
 type Draft = {
+  companyUrl: string;
   companyName: string;
   companySummary: string;
   evidence: string[];
@@ -38,15 +39,15 @@ type Profile = {
 };
 
 const initialProfile: Profile = {
-  name: "",
+  name: "Aksh Kaushik",
   role: "Product-minded software engineer",
   context:
-    "I build thoughtful web products, automate repetitive work, and enjoy contributing across product and engineering.",
-  portfolio: "",
+    "I am a third-year BITS Pilani student who builds AI workflow products, full-stack systems, data pipelines, fintech tools, and developer utilities. I enjoy turning ambiguous startup problems into practical, inspectable products.",
+  portfolio: "https://github.com/akshhkaushik",
   linkedin: "",
   projects: [],
   template:
-    "Hi {{recipient}},\n\nI’ve been following {{company}} and was especially interested in {{company_detail}}.\n\nI’d love to contribute to the team. Based on what I learned, I could help with {{contribution}}.\n\nA couple of relevant things I’ve built:\n{{projects}}\n\nIf this is useful, I’d be glad to share a few concrete ideas or build a small proof of concept. I’ve attached my résumé for context.\n\nBest,\n{{name}}",
+    "I’m Aksh, a third-year BITS Pilani student and product-minded engineer. I build AI workflow products, full-stack systems, data pipelines, fintech tools, and developer utilities. Please represent the most relevant work from my researched GitHub portfolio, propose one small feature I could contribute to this company, and ask to explore joining their team. Mention that my résumé is attached.",
 };
 
 declare global {
@@ -98,6 +99,11 @@ export default function Home() {
           setProfile({
             ...initialProfile,
             ...parsed,
+            name: parsed.name?.trim() || initialProfile.name,
+            role: parsed.role?.trim() || initialProfile.role,
+            context: parsed.context?.trim() || initialProfile.context,
+            portfolio: parsed.portfolio?.trim() || initialProfile.portfolio,
+            template: parsed.template?.trim() || initialProfile.template,
             projects: Array.isArray(parsed.projects) ? parsed.projects : [],
           });
         } catch {
@@ -141,36 +147,13 @@ export default function Home() {
   }, [googleClientId]);
 
   const step = status === "sent" ? 4 : draft ? 3 : status === "researching" ? 2 : 1;
-  const companyHost = useMemo(() => hostFromUrl(companyUrl), [companyUrl]);
+  const companyHost = useMemo(() => {
+    if (companyUrl) return hostFromUrl(companyUrl);
+    return recipientEmail.split("@")[1] || "the company";
+  }, [companyUrl, recipientEmail]);
 
   function updateProfile(field: Exclude<keyof Profile, "projects">, value: string) {
     setProfile((current) => ({ ...current, [field]: value }));
-  }
-
-  function addProject() {
-    setProfile((current) => ({
-      ...current,
-      projects: [
-        ...current.projects,
-        { id: crypto.randomUUID(), title: "", description: "", liveUrl: "", repoUrl: "" },
-      ],
-    }));
-  }
-
-  function updateProject(id: string, field: keyof Omit<Project, "id">, value: string) {
-    setProfile((current) => ({
-      ...current,
-      projects: current.projects.map((project) =>
-        project.id === id ? { ...project, [field]: value } : project,
-      ),
-    }));
-  }
-
-  function removeProject(id: string) {
-    setProfile((current) => ({
-      ...current,
-      projects: current.projects.filter((project) => project.id !== id),
-    }));
   }
 
   function connectGmail() {
@@ -279,52 +262,14 @@ export default function Home() {
           </button>
           {profileOpen && (
             <div className="profile-content">
-              <p className="aside-copy">Saved in this browser and used to shape every draft.</p>
-              <label>
-                Your name
-                <input value={profile.name} onChange={(e) => updateProfile("name", e.target.value)} placeholder="Aksh Kaushik" />
-              </label>
-              <label>
-                Role you want
-                <input value={profile.role} onChange={(e) => updateProfile("role", e.target.value)} />
-              </label>
-              <label>
-                What you can offer
-                <textarea rows={5} value={profile.context} onChange={(e) => updateProfile("context", e.target.value)} />
-              </label>
-              <label>
-                Portfolio URL
-                <input value={profile.portfolio} onChange={(e) => updateProfile("portfolio", e.target.value)} placeholder="https://…" />
-              </label>
-              <label>
-                LinkedIn URL
-                <input value={profile.linkedin} onChange={(e) => updateProfile("linkedin", e.target.value)} placeholder="https://…" />
-              </label>
-              <div className="projects-heading">
+              <p className="aside-copy">Your researched profile and core email are saved in this browser and shape every draft.</p>
+              <div className="portfolio-research-card">
+                <span>✓</span>
                 <div>
-                  <b>Your projects</b>
-                  <small>The AI includes only the strongest match.</small>
+                  <b>GitHub portfolio researched</b>
+                  <small>28 original project repositories · 10 startup capability areas · live, substantial, prototype, and learning work separated</small>
+                  <a href="https://github.com/akshhkaushik" target="_blank" rel="noreferrer">View GitHub ↗</a>
                 </div>
-                <button type="button" onClick={addProject}>＋ Add</button>
-              </div>
-              <div className="project-list">
-                {profile.projects.length === 0 && (
-                  <button className="empty-project" type="button" onClick={addProject}>
-                    Add a project with its live link
-                  </button>
-                )}
-                {profile.projects.map((project, index) => (
-                  <div className="project-card" key={project.id}>
-                    <div className="project-card-top">
-                      <span>Project {index + 1}</span>
-                      <button type="button" onClick={() => removeProject(project.id)} aria-label={`Remove project ${index + 1}`}>Remove</button>
-                    </div>
-                    <input value={project.title} onChange={(e) => updateProject(project.id, "title", e.target.value)} placeholder="Project title" aria-label={`Project ${index + 1} title`} />
-                    <textarea rows={3} value={project.description} onChange={(e) => updateProject(project.id, "description", e.target.value)} placeholder="What it does and what you built" aria-label={`Project ${index + 1} description`} />
-                    <input type="url" value={project.liveUrl} onChange={(e) => updateProject(project.id, "liveUrl", e.target.value)} placeholder="Live URL (required)" aria-label={`Project ${index + 1} live URL`} />
-                    <input type="url" value={project.repoUrl} onChange={(e) => updateProject(project.id, "repoUrl", e.target.value)} placeholder="Repository URL (optional)" aria-label={`Project ${index + 1} repository URL`} />
-                  </div>
-                ))}
               </div>
               <label>
                 Core email content
@@ -333,6 +278,29 @@ export default function Home() {
               <div className="template-help">
                 Required in every email: add the story, credentials, work, and intention you never want omitted. Signal may rewrite and reorder it, then adds a separate company-specific small feature pitch.
               </div>
+              <details className="profile-advanced">
+                <summary>Optional personal overrides</summary>
+                <label>
+                  Your name
+                  <input value={profile.name} onChange={(e) => updateProfile("name", e.target.value)} placeholder="Aksh Kaushik" />
+                </label>
+                <label>
+                  Role you want
+                  <input value={profile.role} onChange={(e) => updateProfile("role", e.target.value)} />
+                </label>
+                <label>
+                  Additional context
+                  <textarea rows={5} value={profile.context} onChange={(e) => updateProfile("context", e.target.value)} />
+                </label>
+                <label>
+                  Portfolio URL
+                  <input value={profile.portfolio} onChange={(e) => updateProfile("portfolio", e.target.value)} placeholder="https://…" />
+                </label>
+                <label>
+                  LinkedIn URL
+                  <input value={profile.linkedin} onChange={(e) => updateProfile("linkedin", e.target.value)} placeholder="https://…" />
+                </label>
+              </details>
             </div>
           )}
         </aside>
@@ -341,7 +309,7 @@ export default function Home() {
           <div className="hero">
             <p className="eyebrow">PERSONAL OUTREACH, GROUNDED IN REAL RESEARCH</p>
             <h1>Write the email they’ll actually read.</h1>
-            <p className="hero-copy">Give Signal a company and a person. It finds the useful details, connects them to your strengths, and prepares one honest, specific introduction.</p>
+            <p className="hero-copy">Enter a work email. Signal identifies and researches the company, matches it against your GitHub portfolio, and prepares one honest, specific introduction.</p>
           </div>
 
           <nav className="steps" aria-label="Progress">
@@ -359,14 +327,10 @@ export default function Home() {
                 <span className="number">01</span>
                 <div><h2>Choose your target</h2><p>One thoughtful email at a time.</p></div>
               </div>
-              <span className="required-note">All fields marked * are required</span>
+              <span className="required-note">Only the recipient email is needed to create a draft</span>
             </div>
             <div className="form-grid">
               <label className="wide">
-                Company website *
-                <div className="input-with-icon"><span>↗</span><input required type="url" value={companyUrl} onChange={(e) => setCompanyUrl(e.target.value)} placeholder="https://company.com" /></div>
-              </label>
-              <label>
                 Recipient email *
                 <div className="input-with-icon"><span>@</span><input required type="email" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} placeholder="founder@company.com" /></div>
               </label>
@@ -375,16 +339,24 @@ export default function Home() {
                 <input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} placeholder="First name, if known" />
               </label>
               <label className="wide">
-                Résumé attachment *
+                Résumé attachment <span className="label-note">(needed only when sending)</span>
                 <div className={`file-drop ${resume ? "has-file" : ""}`}>
                   <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setResume(e.target.files?.[0] || null)} />
                   <span className="file-icon">{resume ? "✓" : "＋"}</span>
                   <div><b>{resume ? resume.name : "Choose your résumé"}</b><small>{resume ? `${(resume.size / 1024 / 1024).toFixed(2)} MB · ready to attach` : "PDF or DOCX · up to 8 MB · used only for this email"}</small></div>
                 </div>
               </label>
+              <details className="company-override wide">
+                <summary>Company website override (usually not needed)</summary>
+                <label>
+                  Website URL
+                  <div className="input-with-icon"><span>↗</span><input type="url" value={companyUrl} onChange={(e) => setCompanyUrl(e.target.value)} placeholder="https://company.com" /></div>
+                </label>
+                <p>Use this only for personal email addresses such as Gmail, or when the company’s email domain differs from its website.</p>
+              </details>
             </div>
             <button className="primary-button" disabled={status === "researching"} type="submit">
-              {status === "researching" ? <><span className="spinner" /> Researching {companyHost}…</> : <>Research company & create draft <span>→</span></>}
+              {status === "researching" ? <><span className="spinner" /> Researching {companyHost}…</> : <>Research automatically & create draft <span>→</span></>}
             </button>
           </form>
 
@@ -399,7 +371,7 @@ export default function Home() {
                   <h2>{draft.companyName}</h2>
                   <p>{draft.companySummary}</p>
                 </div>
-                <a href={companyUrl} target="_blank" rel="noreferrer">Visit site ↗</a>
+                <a href={draft.companyUrl} target="_blank" rel="noreferrer">Visit site ↗</a>
                 <div className="insight-columns">
                   <div><h3>Details used</h3><ul>{draft.evidence.map((item) => <li key={item}>{item}</li>)}</ul></div>
                   <div><h3>Where you could help</h3><ul>{draft.contributionIdeas.map((item) => <li key={item}>{item}</li>)}</ul></div>

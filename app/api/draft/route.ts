@@ -1,4 +1,5 @@
 import { getVercelOidcToken } from "@vercel/oidc";
+import { PERSONAL_RESEARCH_SUMMARY, RESEARCHED_PROJECTS, STARTUP_CAPABILITIES } from "@/lib/personal-profile";
 
 type Profile = {
   name?: string;
@@ -17,6 +18,11 @@ type Profile = {
 };
 
 const BLOCKED_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+const PERSONAL_EMAIL_HOSTS = new Set([
+  "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.in", "outlook.com", "hotmail.com",
+  "live.com", "icloud.com", "me.com", "proton.me", "protonmail.com", "aol.com", "hey.com",
+  "example.com",
+]);
 
 function normalizeUrl(input: unknown) {
   if (typeof input !== "string") throw new Error("Enter a valid company website.");
@@ -31,6 +37,17 @@ function normalizeUrl(input: unknown) {
     /^172\.(1[6-9]|2\d|3[01])\./.test(host)
   ) throw new Error("That website address is not allowed.");
   return url;
+}
+
+function resolveCompanyUrl(input: unknown, recipientEmail: string) {
+  if (typeof input === "string" && input.trim()) {
+    return { url: normalizeUrl(input.trim()), inferred: false };
+  }
+  const domain = recipientEmail.split("@")[1]?.toLowerCase();
+  if (!domain || PERSONAL_EMAIL_HOSTS.has(domain)) {
+    throw new Error("This recipient uses a personal email address, so the company cannot be identified automatically. Add the optional company website override.");
+  }
+  return { url: normalizeUrl(`https://${domain}`), inferred: true };
 }
 
 function textFromHtml(html: string, limit = 22_000) {
@@ -93,6 +110,14 @@ function cleanGeneratedText(value: string) {
   return value.replace(/[\[\]*_]/g, "").replace(/\s+/g, " ").trim();
 }
 
+function cleanGeneratedTextWithoutUrls(value: string) {
+  return cleanGeneratedText(value)
+    .replace(/(?:\(\s*)?https?:\/\/[^\s)]+(?:\s*\))?/gi, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function bold(value: string) {
   return `**${cleanGeneratedText(value)}**`;
 }
@@ -129,6 +154,7 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
     reason: "Included as a concrete example of relevant product work.",
   }));
   return {
+    companyUrl: companyUrl.origin,
     companyName,
     companySummary: `A preview research summary for ${companyUrl.hostname}. Live website analysis activates when Gemini, AI Gateway, or an OpenAI fallback is configured.`,
     evidence: [
@@ -158,7 +184,14 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
 }
 
 function validProjects(profile: Profile) {
-  return (profile.projects || []).flatMap((project) => {
+  const researched = RESEARCHED_PROJECTS.map((project) => ({
+    title: project.title,
+    description: `${project.description} Startup relevance: ${project.startupValue} Evidence level: ${project.maturity}.`,
+    liveUrl: project.liveUrl,
+    repoUrl: project.repoUrl,
+  }));
+  const seen = new Set<string>();
+  return [...(profile.projects || []), ...researched].flatMap((project) => {
     if (!project.title?.trim() || !project.liveUrl?.trim()) return [];
     try {
       const live = new URL(project.liveUrl);
@@ -168,6 +201,9 @@ function validProjects(profile: Profile) {
         const repo = new URL(project.repoUrl);
         if (["http:", "https:"].includes(repo.protocol)) repoUrl = repo.toString();
       }
+      const key = `${project.title.trim().toLowerCase()}|${live.toString()}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
       return [{
         title: project.title.trim().slice(0, 100),
         description: (project.description || "").trim().slice(0, 600),
@@ -177,13 +213,13 @@ function validProjects(profile: Profile) {
     } catch {
       return [];
     }
-  }).slice(0, 12);
+  }).slice(0, 40);
 }
 
 function projectLinks(projects: Array<{ title: string; liveUrl: string; repoUrl: string; reason: string }>) {
   if (projects.length === 0) return "I’d be glad to share relevant work samples.";
   return projects.map((project) => {
-    const source = project.repoUrl ? ` · [Source code](${project.repoUrl})` : "";
+    const source = project.repoUrl && project.repoUrl !== project.liveUrl ? ` · [Source code](${project.repoUrl})` : "";
     return `- **[${markdownLabel(project.title)}](${project.liveUrl})**${source} — ${project.reason}`;
   }).join("\n");
 }
@@ -208,13 +244,13 @@ function composeEmail(input: {
     cleanGeneratedText(input.senderWork),
   ];
   if (input.selectedProjects.length > 0) {
-    paragraphs.push(cleanGeneratedText(input.projectBridge), projectLinks(input.selectedProjects));
+    paragraphs.push(cleanGeneratedTextWithoutUrls(input.projectBridge), projectLinks(input.selectedProjects));
   }
   paragraphs.push(
     bold(input.pitch),
     cleanGeneratedText(input.closing),
   );
-  if (!/\b(?:résumé|resume)\b/i.test(paragraphs.join(" "))) {
+  if (!/(?:résumé|resume)/i.test(paragraphs.join(" "))) {
     paragraphs.push("I’ve attached my résumé for context.");
   }
   paragraphs.push(`Best,\n${cleanGeneratedText(profile.name || "Your name")}`);
@@ -234,10 +270,11 @@ export async function POST(request: Request) {
       recipientName?: string;
       profile?: Profile;
     };
-    const companyUrl = normalizeUrl(payload.companyUrl);
     if (!payload.recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.recipientEmail)) {
       return Response.json({ error: "Enter a valid recipient email." }, { status: 400 });
     }
+    const resolvedCompany = resolveCompanyUrl(payload.companyUrl, payload.recipientEmail);
+    let companyUrl = resolvedCompany.url;
     const profile = payload.profile || {};
     let gatewayToken = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
     if (!gatewayToken && process.env.VERCEL) {
@@ -254,7 +291,14 @@ export async function POST(request: Request) {
     }
     const projects = validProjects(profile);
 
-    const homePage = await fetchResearchPage(companyUrl.toString());
+    let homePage;
+    try {
+      homePage = await fetchResearchPage(companyUrl.toString());
+    } catch (error) {
+      if (!resolvedCompany.inferred || companyUrl.hostname.startsWith("www.")) throw error;
+      companyUrl = normalizeUrl(`https://www.${companyUrl.hostname}`);
+      homePage = await fetchResearchPage(companyUrl.toString());
+    }
     const researchBase = normalizeUrl(homePage.url);
     const linkedPages = await Promise.allSettled(
       researchLinks(homePage.html, researchBase).map((url) => fetchResearchPage(url)),
@@ -337,8 +381,8 @@ export async function POST(request: Request) {
     const aiRequest = {
       store: false,
       instructions:
-        "You are a product-minded researcher and excellent job-outreach writer. Write one cohesive email with two equally important parts: (1) the sender's established story and work, which must appear in every email, and (2) one company-specific, small feature idea they could contribute. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Preserve every concrete sender fact, credential, work example, capability, intention, and ask from the REQUIRED CORE EMAIL CONTENT and sender context. You may rewrite and reorder that material naturally, but you must not omit it. Then propose exactly one narrowly scoped feature, improvement, or proof of concept that one engineer could prototype in a few days. It must be a single feature, not a new platform, broad toolkit, boilerplate suite, or sweeping strategy. Name the user or workflow it helps and the practical benefit. Every company claim must be traceable to the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Do not use generic praise such as 'impressed', 'incredible', 'innovative', or 'revolutionary'. Avoid vague language such as 'enhance the user experience', 'drive innovation', or 'contribute across engineering' unless followed by a specific deliverable. When at least one sender project is supplied, select the strongest matching one (or two only if both are clearly useful). Copy selected project titles and URLs exactly; never invent or alter a project or URL. Avoid flattery, hype, and pressure.",
-      input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || ""}\nSender context (required in substance): ${profile.context || ""}\nREQUIRED CORE EMAIL CONTENT (preserve all meaningful sender information; wording may adapt): ${profile.template || "none provided"}\nSender projects (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
+        "You are a product-minded researcher and excellent job-outreach writer. Write one cohesive email with two equally important parts: (1) the sender's established story and work, which must appear in every email, and (2) one company-specific, small feature idea they could contribute. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Compare that need against the supplied researched capability profile and complete project catalog; do not ask the sender to supply project details. Preserve every concrete sender fact, credential, work example, capability, intention, and ask from the REQUIRED CORE EMAIL CONTENT and sender context. You may rewrite and reorder that material naturally, but you must not omit it. Then propose exactly one narrowly scoped feature, improvement, or proof of concept that one engineer could prototype in a few days. It must be a single feature, not a new platform, broad toolkit, boilerplate suite, or sweeping strategy. Name the user or workflow it helps and the practical benefit. Every company claim must be traceable to the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Do not use generic praise such as 'impressed', 'incredible', 'innovative', or 'revolutionary'. Avoid vague language such as 'enhance the user experience', 'drive innovation', or 'contribute across engineering' unless followed by a specific deliverable. Select one strongest matching project by default; select a second only when it proves a clearly different capability essential to the pitch. Prefer live and substantial projects. Use prototypes only for a direct match and describe their maturity honestly. Never present learning repositories as production products. Copy selected project titles and URLs exactly; never invent or alter a project or URL. Do not place URLs in opening, observation, senderWork, pitch, projectBridge, or closing—the application embeds validated links separately. Keep the complete email concise enough for cold outreach, ideally 180-240 words before the sign-off. Avoid flattery, hype, and pressure.",
+      input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || "Product-minded software engineer"}\nSender context (required in substance): ${profile.context || PERSONAL_RESEARCH_SUMMARY}\nREQUIRED CORE EMAIL CONTENT (preserve all meaningful sender information; wording may adapt): ${profile.template || "Use the researched personal profile and ask to contribute to and join the team."}\n\nRESEARCHED PERSONAL PROFILE:\n${PERSONAL_RESEARCH_SUMMARY}\n\nSTARTUP CAPABILITY MAP:\n- ${STARTUP_CAPABILITIES.join("\n- ")}\n\nCOMPLETE ORIGINAL PROJECT CATALOG (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
       text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
     };
 
@@ -442,6 +486,7 @@ export async function POST(request: Request) {
       }];
     }
     return Response.json({
+      companyUrl: researchBase.origin,
       companyName: result.companyName,
       companySummary: result.companySummary,
       evidence: result.evidence,
