@@ -62,11 +62,21 @@ const initialProfile: Profile = {
 };
 
 const PROFILE_STORAGE_KEY = "signal-profile";
+const COMPOSE_STORAGE_KEY = "signal-compose-v1";
 const GMAIL_CONNECTION_KEY = "signal-gmail-autoconnect";
 const GMAIL_TOKEN_KEY = "signal-gmail-token-v1";
 const TOKEN_EXPIRY_BUFFER_MS = 120_000;
 
 type CachedGmailToken = { accessToken: string; expiresAt: number };
+type SavedCompose = {
+  companyUrl: string;
+  recipientEmail: string;
+  recipientName: string;
+  draft: Draft | null;
+  subject: string;
+  body: string;
+  trackOpens: boolean;
+};
 
 function readCachedGmailToken(): CachedGmailToken | null {
   try {
@@ -84,6 +94,11 @@ function readCachedGmailToken(): CachedGmailToken | null {
   }
 }
 
+function saveCachedGmailToken(accessToken: string, expiresAt: number) {
+  localStorage.setItem(GMAIL_CONNECTION_KEY, "true");
+  localStorage.setItem(GMAIL_TOKEN_KEY, JSON.stringify({ accessToken, expiresAt }));
+}
+
 declare global {
   interface Window {
     google?: {
@@ -93,6 +108,7 @@ declare global {
             client_id: string;
             scope: string;
             callback: (response: { access_token?: string; expires_in?: number; error?: string }) => void;
+            error_callback?: () => void;
           }) => { requestAccessToken: (overrideConfig?: { prompt?: string }) => void };
           revoke: (accessToken: string, callback: () => void) => void;
         };
@@ -135,7 +151,6 @@ export default function Home() {
   const tokenClientRef = useRef<{ requestAccessToken: (overrideConfig?: { prompt?: string }) => void } | null>(null);
   const tokenRefreshTimerRef = useRef<number | null>(null);
   const silentReconnectRef = useRef(false);
-  const initializedClientIdRef = useRef("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -155,6 +170,20 @@ export default function Home() {
           });
         } catch { localStorage.removeItem(PROFILE_STORAGE_KEY); }
       }
+      const savedCompose = localStorage.getItem(COMPOSE_STORAGE_KEY);
+      if (savedCompose) {
+        try {
+          const parsed = JSON.parse(savedCompose) as Partial<SavedCompose>;
+          setCompanyUrl(typeof parsed.companyUrl === "string" ? parsed.companyUrl : "");
+          setRecipientEmail(typeof parsed.recipientEmail === "string" ? parsed.recipientEmail : "");
+          setRecipientName(typeof parsed.recipientName === "string" ? parsed.recipientName : "");
+          setDraft(parsed.draft && typeof parsed.draft === "object" ? parsed.draft : null);
+          setSubject(typeof parsed.subject === "string" ? parsed.subject : "");
+          setBody(typeof parsed.body === "string" ? parsed.body : "");
+          setTrackOpens(typeof parsed.trackOpens === "boolean" ? parsed.trackOpens : true);
+          if (parsed.draft && typeof parsed.draft === "object") setStatus("ready");
+        } catch { localStorage.removeItem(COMPOSE_STORAGE_KEY); }
+      }
       const cachedGmail = readCachedGmailToken();
       if (cachedGmail) setGmailToken(cachedGmail.accessToken);
       setProfileRestored(true);
@@ -168,8 +197,16 @@ export default function Home() {
   }, [profile, profileRestored]);
 
   useEffect(() => {
-    if (!googleClientId || !googleScriptReady || !window.google || initializedClientIdRef.current === googleClientId) return;
-    initializedClientIdRef.current = googleClientId;
+    if (!profileRestored) return;
+    const timer = window.setTimeout(() => {
+      const saved: SavedCompose = { companyUrl, recipientEmail, recipientName, draft, subject, body, trackOpens };
+      localStorage.setItem(COMPOSE_STORAGE_KEY, JSON.stringify(saved));
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [body, companyUrl, draft, profileRestored, recipientEmail, recipientName, subject, trackOpens]);
+
+  useEffect(() => {
+    if (!googleClientId || !googleScriptReady || !window.google) return;
     const requestSilently = () => {
       silentReconnectRef.current = true;
       tokenClientRef.current?.requestAccessToken({ prompt: "" });
@@ -183,8 +220,7 @@ export default function Home() {
         if (response.access_token) {
           const expiresAt = Date.now() + (response.expires_in || 3600) * 1000;
           setGmailToken(response.access_token);
-          localStorage.setItem(GMAIL_CONNECTION_KEY, "true");
-          localStorage.setItem(GMAIL_TOKEN_KEY, JSON.stringify({ accessToken: response.access_token, expiresAt }));
+          saveCachedGmailToken(response.access_token, expiresAt);
           setNotice(wasSilent ? "Gmail reconnected." : "Gmail connected.");
           if (tokenRefreshTimerRef.current) window.clearTimeout(tokenRefreshTimerRef.current);
           tokenRefreshTimerRef.current = window.setTimeout(requestSilently, Math.max(expiresAt - Date.now() - TOKEN_EXPIRY_BUFFER_MS, 60_000));
@@ -193,6 +229,12 @@ export default function Home() {
           localStorage.removeItem(GMAIL_TOKEN_KEY);
           setNotice("Reconnect Gmail once to continue.");
         } else setNotice("Gmail connection was not completed.");
+      },
+      error_callback: () => {
+        silentReconnectRef.current = false;
+        setGmailToken("");
+        localStorage.removeItem(GMAIL_TOKEN_KEY);
+        setNotice("Google needs one click to reconnect Gmail.");
       },
     });
     const cached = readCachedGmailToken();

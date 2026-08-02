@@ -7,9 +7,11 @@ Aksh Outreach researches a company website, connects that research to your exper
 - Uses the recipient email, recipient name, and company website to research the correct company.
 - Uses a built-in, researched catalog of Aksh's 28 original GitHub project repositories and separates live, substantial, prototype, and learning evidence.
 - Saves the required core email content and optional personal overrides in the browser.
+- Restores the current recipient, company, generated draft, edited subject, edited message, and tracking preference after a refresh. Browser security requires the résumé file to be reattached.
 - Selects up to two relevant projects without inventing titles, claims, ownership, maturity, or URLs.
 - Embeds live-project and repository links under their proper project titles.
 - Produces an editable subject and message.
+- Renders the full message with compact paragraph spacing and typography without shortening its wording.
 - Appends Aksh's fixed BITS Pilani, GitHub, LinkedIn, portfolio, and email signature to every draft.
 - Starts every email with Aksh's BITS Pilani introduction, includes fixed linked examples for CEO Voice Platform, Veritas, EvoComb, and GLOB, then adds only non-duplicate relevant work and a humble company-specific idea.
 - Uses the consistent subject `I’d love to contribute to <Company>` and avoids decorative HTML and bulk-send behavior.

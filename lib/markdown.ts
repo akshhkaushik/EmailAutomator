@@ -16,14 +16,21 @@ export function markdownToHtml(value: string) {
     },
   );
 
-  return withLinkTokens
+  const formatted = withLinkTokens
     .replace(
       /\*\*([^*\n]+)\*\*/g,
       '<strong style="font-weight:700;color:#102c21">$1</strong>',
     )
     .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#235f46;text-decoration:underline">$1</a>')
-    .replace(/%%SIGNAL_LINK_(\d+)%%/g, (_match, index: string) => links[Number(index)] || "")
-    .replace(/\n/g, "<br>");
+    .replace(/%%SIGNAL_LINK_(\d+)%%/g, (_match, index: string) => links[Number(index)] || "");
+
+  return formatted
+    .trim()
+    .split(/\n{2,}/)
+    .map((paragraph, index, paragraphs) =>
+      `<p style="margin:0 0 ${index === paragraphs.length - 1 ? "0" : "10px"};padding:0">${paragraph.replace(/\n/g, "<br>")}</p>`,
+    )
+    .join("");
 }
 
 export function markdownToPlain(value: string) {

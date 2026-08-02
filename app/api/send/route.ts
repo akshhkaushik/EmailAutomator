@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       'Content-Type: text/html; charset="UTF-8"',
       "Content-Transfer-Encoding: base64",
       "",
-      utf8Base64(`<div style="font-family:Arial,sans-serif;line-height:1.65;color:#17201b">${markdownToHtml(body)}${trackingPixel}</div>`),
+      utf8Base64(`<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#17201b">${markdownToHtml(body)}${trackingPixel}</div>`),
       "",
       `--${alternative}--`,
       "",

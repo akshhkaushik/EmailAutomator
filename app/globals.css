@@ -111,7 +111,7 @@ textarea { resize: vertical; }
 .address-row { padding: 0 24px; border-bottom: 1px solid var(--line); }
 .address-row label { display: grid; grid-template-columns: 70px 1fr; align-items: center; }
 .address-row input { margin: 0; padding: 15px 0; border: 0; border-radius: 0; box-shadow: none; }
-.email-preview { margin: 22px 24px; padding: 22px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
+.email-preview { margin: 18px 24px; padding: 18px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
 .email-preview a { color: var(--accent); font-weight: 700; }
 .email-preview strong { color: var(--ink); }
 .source-editor { margin: 0 24px 20px; border: 1px solid var(--line); border-radius: 8px; background: #fafbfa; }
