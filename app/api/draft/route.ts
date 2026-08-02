@@ -40,6 +40,24 @@ const EMAIL_SIGNATURE = [
   "Email: f20240903@pilani.bits-pilani.ac.in",
 ].join("\n");
 
+const FIXED_PORTFOLIO_TITLES = new Set(["CEO Voice Platform", "Veritas", "EvoComb", "GLOB"]);
+
+const FIXED_PORTFOLIO_BLOCK = [
+  "Over the past year, I’ve spent most of my time building AI and data systems intended for real use rather than only demonstrations. A few examples I’d be grateful to share are:",
+  "**[CEO Voice Platform](https://ceo-voice-platform-two.vercel.app/)** — an end-to-end system for recreating a leader’s writing style using hybrid RAG, structured retrieval, evaluation pipelines, constraint-preserving re-voicing, and production-oriented backend architecture.",
+  "**[Veritas](https://veritas-virid.vercel.app/)** — an AI-powered real-time fact-checking platform with FastAPI, vector search, graph databases, retrieval pipelines, browser-extension support, and mobile support.",
+  "I’ve also been developing **Geospatial Intelligence Platforms** that combine satellite imagery, environmental indicators, sensor networks, and open geospatial datasets for urban analytics and sustainability research. One example is **[EvoComb — Environmental Stress Index for Delhi NCR](https://evo-comb-web.vercel.app/)**.",
+  "Alongside that, I build **Interactive Geospatial Visualization Experiences** that make complex spatial data easier to explore. **[GLOB](https://glob.akshh.workers.dev/)** is one example, using modern web technologies to turn spatial datasets into an intuitive interactive experience.",
+].join("\n\n");
+
+function contributionSubject(companyName: string) {
+  return `I’d love to contribute to ${cleanGeneratedText(companyName)}`;
+}
+
+function personalIntroduction(companyName: string, companyUrl: string) {
+  return `I’m Aksh Kaushik, a third-year student at BITS Pilani. I recently came across **[${markdownLabel(companyName)}](${companyUrl})**, and its work genuinely caught my attention.`;
+}
+
 function normalizeUrl(input: unknown) {
   if (typeof input !== "string") throw new Error("Enter a valid company website.");
   const url = new URL(input);
@@ -196,7 +214,7 @@ function escapeRegExp(value: string) {
 }
 
 function highlightTerms(value: string, terms: string[]) {
-  const formatted = cleanGeneratedText(value);
+  const formatted = cleanGeneratedText(value).replace(/\s+([,.;:!?])/g, "$1");
   const uniqueTerms = [...new Set(terms
     .map((term) => cleanGeneratedText(term))
     .filter((term) => term.length >= 3 && term.length <= 80))]
@@ -209,16 +227,18 @@ function highlightTerms(value: string, terms: string[]) {
   return formatted.replace(pattern, "$1**$2**");
 }
 
-function linkCompany(value: string, companyName: string, companyUrl: string) {
+function humblePitch(value: string, terms: string[]) {
+  const directIdea = cleanGeneratedText(value)
+    .replace(/^I (?:wondered whether|was wondering (?:whether|if)) (?:it would be useful to )?/i, "")
+    .replace(/^it would be useful to /i, "");
+  const pitch = highlightTerms(directIdea, terms);
+  return pitch ? `I may be missing some context, but one small idea I wondered about is this: ${pitch}` : "";
+}
+
+function uniqueSenderWork(value: string, terms: string[]) {
   const cleaned = cleanGeneratedText(value);
-  const safeName = markdownLabel(companyName);
-  if (!safeName) return cleaned;
-  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegExp(safeName)})(?=$|[^\\p{L}\\p{N}])`, "iu");
-  if (pattern.test(cleaned)) {
-    pattern.lastIndex = 0;
-    return cleaned.replace(pattern, `$1**[$2](${companyUrl})**`);
-  }
-  return `Regarding **[${safeName}](${companyUrl})**: ${cleaned}`;
+  if (/\b(?:BITS Pilani|third-year|CEO Voice Platform|Veritas|EvoComb|GLOB)\b/i.test(cleaned)) return "";
+  return highlightTerms(cleaned, terms);
 }
 
 function extractOutputText(response: {
@@ -261,17 +281,14 @@ function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile)
       `Explore a small proof of concept aligned with your ${profile.role || "target role"}.`,
     ],
     selectedProjects,
-    subject: `A contribution idea for ${companyName}`,
+    subject: contributionSubject(companyName),
     body: composeEmail({
       recipient: recipientName || "there",
       companyName,
       companyUrl: companyUrl.origin,
-      opening: `I spent some time looking through ${companyName} and wanted to reach out directly.`,
       companyObservation: `What stood out was ${detail}.`,
       senderWork: profile.context || "I build practical product experiences and workflow automation.",
       pitch: `As a small first contribution, I could help with ${contribution}.`,
-      projectBridge: "One relevant example of how I work is below.",
-      closing: "If that direction is useful, I would love to compare notes and explore contributing to the team.",
       highlightTerms: ["small first contribution", "proof of concept", profile.role || "target role"],
       selectedProjects,
     }),
@@ -314,37 +331,35 @@ function validProjects(profile: Profile) {
 
 function projectLinks(projects: Array<{ title: string; liveUrl: string; repoUrl: string; reason: string }>) {
   if (projects.length === 0) return "I’d be glad to share relevant work samples.";
-  return projects.map((project) => {
-    const source = project.repoUrl && project.repoUrl !== project.liveUrl ? ` ([source code](${project.repoUrl}))` : "";
-    return `My work on **[${markdownLabel(project.title)}](${project.liveUrl})**${source} is directly relevant here — ${cleanGeneratedTextWithoutUrls(project.reason)}`;
-  }).join("\n");
+  return projects.map((project) =>
+    `Another relevant example is **[${markdownLabel(project.title)}](${project.liveUrl})** — ${cleanGeneratedTextWithoutUrls(project.reason)}`,
+  ).join("\n");
 }
 
 function composeEmail(input: {
   recipient: string;
   companyName: string;
   companyUrl: string;
-  opening: string;
   companyObservation: string;
   senderWork: string;
   pitch: string;
-  projectBridge: string;
-  closing: string;
   highlightTerms?: string[];
   selectedProjects: Array<{ title: string; liveUrl: string; repoUrl: string; reason: string }>;
 }) {
   const paragraphs = [
     `Hi ${cleanGeneratedText(input.recipient)},`,
-    linkCompany(input.opening, input.companyName, input.companyUrl),
+    personalIntroduction(input.companyName, input.companyUrl),
     highlightTerms(input.companyObservation, input.highlightTerms || []),
-    highlightTerms(input.senderWork, input.highlightTerms || []),
+    uniqueSenderWork(input.senderWork, input.highlightTerms || []),
+    FIXED_PORTFOLIO_BLOCK,
   ];
-  if (input.selectedProjects.length > 0) {
-    paragraphs.push(cleanGeneratedTextWithoutUrls(input.projectBridge), projectLinks(input.selectedProjects));
+  const additionalProjects = input.selectedProjects.filter((project) => !FIXED_PORTFOLIO_TITLES.has(project.title));
+  if (additionalProjects.length > 0) {
+    paragraphs.push(projectLinks(additionalProjects));
   }
   paragraphs.push(
-    highlightTerms(input.pitch, input.highlightTerms || []),
-    cleanGeneratedText(input.closing),
+    humblePitch(input.pitch, input.highlightTerms || []),
+    "If any of this feels useful, I’d be grateful for the chance to learn more about your priorities and explore whether I could contribute to the team.",
   );
   if (!/(?:résumé|resume)/i.test(paragraphs.join(" "))) {
     paragraphs.push("I’ve attached my résumé for context.");
@@ -467,39 +482,26 @@ export async function POST(request: Request) {
             required: ["title", "liveUrl", "repoUrl", "reason"],
           },
         },
-        subject: { type: "string", description: "A natural 4-9 word subject mentioning a specific company product, focus, or useful contribution idea." },
-        opening: {
-          type: "string",
-          description: "One natural opening sentence specific to why the sender is contacting this company. Mention the exact companyName once so the application can embed its website link. Do not use generic praise and do not include a greeting.",
-        },
         companyObservation: {
           type: "string",
-          description: "One or two complete sentences showing a concrete understanding of a real company product, audience, workflow, or priority.",
+          description: "Two humble, specific sentences showing a concrete understanding of a real company product, audience, workflow, or priority and why that direction feels meaningful. Avoid exaggerated praise.",
         },
         senderWork: {
           type: "string",
-          description: "One or two natural sentences presenting the sender's work, strengths, credentials, and reason for reaching out. Preserve every concrete fact and important intention from the required core email content and sender context, but adapt the wording to this company. Do not discuss the proposed company feature here.",
+          description: "At most one brief sentence preserving any unique sender fact or intention from the required core email content that is not already covered by the fixed introduction and fixed portfolio block. Do not repeat BITS Pilani, CEO Voice Platform, Veritas, EvoComb, or GLOB.",
         },
         pitch: {
           type: "string",
-          description: "One or two complete sentences proposing exactly one small, narrowly scoped company feature or improvement the sender could prototype in a few days, who it helps, and the practical benefit. Do not propose a new platform, broad toolkit, or multi-feature product.",
-        },
-        projectBridge: {
-          type: "string",
-          description: "One short sentence naturally connecting the selected work sample to the proposed contribution. Do not repeat its URL.",
-        },
-        closing: {
-          type: "string",
-          description: "A natural, low-pressure call to action asking to contribute, discuss the idea, or join the team. Do not include a sign-off or sender name.",
+          description: "State exactly one small, narrowly scoped feature or improvement the sender could prototype in a few days, who it helps, and the practical benefit. State the idea directly without an introductory hedge because the application adds a humble preface.",
         },
       },
-      required: ["companyName", "companySummary", "evidence", "contributionIdeas", "highlightTerms", "selectedProjects", "subject", "opening", "companyObservation", "senderWork", "pitch", "projectBridge", "closing"],
+      required: ["companyName", "companySummary", "evidence", "contributionIdeas", "highlightTerms", "selectedProjects", "companyObservation", "senderWork", "pitch"],
     };
 
     const aiRequest = {
       store: false,
       instructions:
-        "You are a product-minded researcher and excellent job-outreach writer. Write one cohesive email with two equally important parts: (1) the sender's established story and work, which must appear in every email, and (2) one company-specific, small feature idea they could contribute. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Compare that need against the supplied researched capability profile and complete project catalog; do not ask the sender to supply project details. Preserve every concrete sender fact, credential, work example, capability, intention, and ask from the REQUIRED CORE EMAIL CONTENT and sender context. You may rewrite and reorder that material naturally, but you must not omit it. Then propose exactly one narrowly scoped feature, improvement, or proof of concept that one engineer could prototype in a few days. It must be a single feature, not a new platform, broad toolkit, boilerplate suite, or sweeping strategy. Name the user or workflow it helps and the practical benefit. Every company claim must be traceable to the supplied website text. Never invent metrics, customers, funding, technologies, names, or open roles. Do not use generic praise such as 'impressed', 'incredible', 'innovative', or 'revolutionary'. Avoid vague language such as 'enhance the user experience', 'drive innovation', or 'contribute across engineering' unless followed by a specific deliverable. Select one strongest matching project by default; select a second only when it proves a clearly different capability essential to the pitch. Prefer live and substantial projects. Use prototypes only for a direct match and describe their maturity honestly. Never present learning repositories as production products. Copy selected project titles and URLs exactly; never invent or alter a project or URL. Mention the exact companyName once in opening. Return 3-6 highlightTerms copied exactly from the drafted prose: short product names, technical capabilities, or the concrete proposed feature—not generic phrases and never complete sentences. Do not place URLs in opening, observation, senderWork, pitch, projectBridge, or closing—the application embeds validated links separately. Keep the complete email concise enough for cold outreach, ideally 180-240 words before the sign-off. Avoid flattery, hype, and pressure.",
+        "You are a thoughtful researcher and humble job-outreach writer. The application itself always inserts Aksh's BITS Pilani introduction, four fixed linked work examples (CEO Voice Platform, Veritas, EvoComb, and GLOB), a humble preface before the feature idea, a low-pressure closing, and a fixed signature. Do not repeat or paraphrase those fixed sections. Your job is to add a company-specific observation, preserve only unique details from the sender's editable core content, and state one small contribution idea directly. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Compare that need against the supplied researched capability profile and complete project catalog; do not ask the sender for project details. Write with humility and genuine curiosity. Never sound entitled, certain about the company’s needs, sales-oriented, or overly flattering. Propose exactly one feature or proof of concept that one engineer could prototype in a few days. Name the user or workflow it helps and the practical benefit. Do not begin pitch with 'I wondered', 'I was wondering', or another hedge because the application adds that language. Every company claim must be traceable to supplied website text. Never invent metrics, customers, funding, technologies, referral sources, names, or open roles. In particular, never claim the sender found the company through YC unless the supplied website text explicitly proves that relationship. Select one strongest additional project by default; select a second only if it proves a different essential capability. Copy titles and URLs exactly. The application will suppress projects already in the fixed portfolio block. Return 3-6 highlightTerms copied exactly from the drafted prose: short product names, technical capabilities, or the proposed feature—not generic phrases or sentences. Do not place URLs in any prose field. Avoid spam-like language, hype, pressure, generic praise, and repeated calls to action.",
       input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || "Product-minded software engineer"}\nSender context (required in substance): ${profile.context || PERSONAL_RESEARCH_SUMMARY}\nREQUIRED CORE EMAIL CONTENT (preserve all meaningful sender information; wording may adapt): ${profile.template || "Use the researched personal profile and ask to contribute to and join the team."}\n\nRESEARCHED PERSONAL PROFILE:\n${PERSONAL_RESEARCH_SUMMARY}\n\nSTARTUP CAPABILITY MAP:\n- ${STARTUP_CAPABILITIES.join("\n- ")}\n\nCOMPLETE ORIGINAL PROJECT CATALOG (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
       text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
     };
@@ -584,13 +586,9 @@ export async function POST(request: Request) {
       contributionIdeas: string[];
       highlightTerms: string[];
       selectedProjects: Array<{ title: string; liveUrl: string; repoUrl: string; reason: string }>;
-      subject: string;
-      opening: string;
       companyObservation: string;
       senderWork: string;
       pitch: string;
-      projectBridge: string;
-      closing: string;
     };
     const allowedProjects = new Map(projects.map((project) => [project.liveUrl, project]));
     let selectedProjects = result.selectedProjects.flatMap((project) => {
@@ -611,17 +609,14 @@ export async function POST(request: Request) {
       evidence: result.evidence,
       contributionIdeas: result.contributionIdeas,
       selectedProjects,
-      subject: result.subject,
+      subject: contributionSubject(result.companyName),
       body: composeEmail({
         recipient: payload.recipientName || "there",
         companyName: result.companyName,
         companyUrl: researchBase.origin,
-        opening: result.opening,
         companyObservation: result.companyObservation,
         senderWork: result.senderWork,
         pitch: result.pitch,
-        projectBridge: result.projectBridge,
-        closing: result.closing,
         highlightTerms: result.highlightTerms,
         selectedProjects,
       }),

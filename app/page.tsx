@@ -48,7 +48,7 @@ const initialProfile: Profile = {
   linkedin: "",
   projects: [],
   template:
-    "I’m Aksh, a third-year BITS Pilani student and product-minded engineer. I build AI workflow products, full-stack systems, data pipelines, fintech tools, and developer utilities. Please represent the most relevant work from my researched GitHub portfolio, propose one small feature I could contribute to this company, and ask to explore joining their team. Mention that my résumé is attached.",
+    "Keep the message humble and personal. Preserve any unique context I add here, propose one small feature I could genuinely help prototype, and ask politely whether I might contribute to and learn from the team. Mention that my résumé is attached.",
 };
 
 const PROFILE_STORAGE_KEY = "signal-profile";
@@ -322,7 +322,7 @@ export default function Home() {
                 <textarea rows={10} value={profile.template} onChange={(e) => updateProfile("template", e.target.value)} />
               </label>
               <div className="template-help">
-                Saved automatically and never replaced unless you edit it. Signal preserves its meaning while adapting the email and adding a company-specific feature pitch.
+                Saved automatically and never replaced unless you edit it. Your BITS introduction and four core linked projects are inserted separately in every email; this box adds any extra context and preferences.
               </div>
               <details className="profile-advanced">
                 <summary>Optional personal overrides</summary>
