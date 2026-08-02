@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Script from "next/script";
 import { markdownToHtml } from "@/lib/markdown";
 
 type Draft = {
@@ -50,6 +51,9 @@ const initialProfile: Profile = {
     "I’m Aksh, a third-year BITS Pilani student and product-minded engineer. I build AI workflow products, full-stack systems, data pipelines, fintech tools, and developer utilities. Please represent the most relevant work from my researched GitHub portfolio, propose one small feature I could contribute to this company, and ask to explore joining their team. Mention that my résumé is attached.",
 };
 
+const PROFILE_STORAGE_KEY = "signal-profile";
+const GMAIL_CONNECTION_KEY = "signal-gmail-autoconnect";
+
 declare global {
   interface Window {
     google?: {
@@ -58,8 +62,9 @@ declare global {
           initTokenClient: (config: {
             client_id: string;
             scope: string;
-            callback: (response: { access_token?: string; error?: string }) => void;
-          }) => { requestAccessToken: () => void };
+            callback: (response: { access_token?: string; expires_in?: number; error?: string }) => void;
+          }) => { requestAccessToken: (overrideConfig?: { prompt?: string }) => void };
+          revoke: (accessToken: string, callback: () => void) => void;
         };
       };
     };
@@ -87,29 +92,36 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [gmailToken, setGmailToken] = useState("");
   const [googleClientId, setGoogleClientId] = useState("");
+  const [googleScriptReady, setGoogleScriptReady] = useState(false);
+  const [profileRestored, setProfileRestored] = useState(false);
   const [profileOpen, setProfileOpen] = useState(true);
-  const tokenClientRef = useRef<{ requestAccessToken: () => void } | null>(null);
+  const tokenClientRef = useRef<{ requestAccessToken: (overrideConfig?: { prompt?: string }) => void } | null>(null);
+  const tokenRefreshTimerRef = useRef<number | null>(null);
+  const silentReconnectRef = useRef(false);
+  const initializedClientIdRef = useRef("");
 
   useEffect(() => {
     const restoreTimer = window.setTimeout(() => {
-      const saved = localStorage.getItem("signal-profile");
+      const saved = localStorage.getItem(PROFILE_STORAGE_KEY);
       if (saved) {
         try {
           const parsed = JSON.parse(saved) as Partial<Profile>;
           setProfile({
             ...initialProfile,
             ...parsed,
-            name: parsed.name?.trim() || initialProfile.name,
-            role: parsed.role?.trim() || initialProfile.role,
-            context: parsed.context?.trim() || initialProfile.context,
-            portfolio: parsed.portfolio?.trim() || initialProfile.portfolio,
-            template: parsed.template?.trim() || initialProfile.template,
+            name: typeof parsed.name === "string" ? parsed.name : initialProfile.name,
+            role: typeof parsed.role === "string" ? parsed.role : initialProfile.role,
+            context: typeof parsed.context === "string" ? parsed.context : initialProfile.context,
+            portfolio: typeof parsed.portfolio === "string" ? parsed.portfolio : initialProfile.portfolio,
+            linkedin: typeof parsed.linkedin === "string" ? parsed.linkedin : initialProfile.linkedin,
+            template: typeof parsed.template === "string" ? parsed.template : initialProfile.template,
             projects: Array.isArray(parsed.projects) ? parsed.projects : [],
           });
         } catch {
-          localStorage.removeItem("signal-profile");
+          localStorage.removeItem(PROFILE_STORAGE_KEY);
         }
       }
+      setProfileRestored(true);
     }, 0);
     fetch("/api/config")
       .then((response) => response.json())
@@ -119,32 +131,43 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("signal-profile", JSON.stringify(profile));
-  }, [profile]);
+    if (!profileRestored) return;
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  }, [profile, profileRestored]);
 
   useEffect(() => {
-    if (!googleClientId || document.querySelector("#google-identity-script")) return;
-    const script = document.createElement("script");
-    script.id = "google-identity-script";
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.onload = () => {
-      if (!window.google) return;
-      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
-        client_id: googleClientId,
-        scope: "https://www.googleapis.com/auth/gmail.send",
-        callback: (response) => {
-          if (response.access_token) {
-            setGmailToken(response.access_token);
-            setNotice("Gmail connected for this session.");
-          } else {
-            setNotice("Gmail connection was not completed.");
-          }
-        },
-      });
+    if (!googleClientId || !googleScriptReady || !window.google || initializedClientIdRef.current === googleClientId) return;
+    initializedClientIdRef.current = googleClientId;
+    const requestSilently = () => {
+      silentReconnectRef.current = true;
+      tokenClientRef.current?.requestAccessToken({ prompt: "" });
     };
-    document.head.appendChild(script);
-  }, [googleClientId]);
+    tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+      client_id: googleClientId,
+      scope: "https://www.googleapis.com/auth/gmail.send",
+      callback: (response) => {
+        const wasSilent = silentReconnectRef.current;
+        silentReconnectRef.current = false;
+        if (response.access_token) {
+          setGmailToken(response.access_token);
+          localStorage.setItem(GMAIL_CONNECTION_KEY, "true");
+          setNotice(wasSilent ? "Gmail reconnected automatically." : "Gmail connected and will reconnect automatically on this browser.");
+          if (tokenRefreshTimerRef.current) window.clearTimeout(tokenRefreshTimerRef.current);
+          const refreshAfterMs = Math.max(((response.expires_in || 3600) - 120) * 1000, 60_000);
+          tokenRefreshTimerRef.current = window.setTimeout(requestSilently, refreshAfterMs);
+        } else if (wasSilent) {
+          setGmailToken("");
+          setNotice("Google needs you to reconnect Gmail once to continue sending.");
+        } else {
+          setNotice("Gmail connection was not completed.");
+        }
+      },
+    });
+    if (localStorage.getItem(GMAIL_CONNECTION_KEY) === "true") requestSilently();
+    return () => {
+      if (tokenRefreshTimerRef.current) window.clearTimeout(tokenRefreshTimerRef.current);
+    };
+  }, [googleClientId, googleScriptReady]);
 
   const step = status === "sent" ? 4 : draft ? 3 : status === "researching" ? 2 : 1;
   const companyHost = useMemo(() => {
@@ -165,7 +188,23 @@ export default function Home() {
       setNotice("Google sign-in is still loading. Please try again in a moment.");
       return;
     }
+    silentReconnectRef.current = false;
     tokenClientRef.current.requestAccessToken();
+  }
+
+  function disconnectGmail() {
+    const finishDisconnect = () => {
+      if (tokenRefreshTimerRef.current) window.clearTimeout(tokenRefreshTimerRef.current);
+      tokenRefreshTimerRef.current = null;
+      localStorage.removeItem(GMAIL_CONNECTION_KEY);
+      setGmailToken("");
+      setNotice("Gmail disconnected from Signal on this browser.");
+    };
+    if (gmailToken && window.google) {
+      window.google.accounts.oauth2.revoke(gmailToken, finishDisconnect);
+    } else {
+      finishDisconnect();
+    }
   }
 
   async function generateDraft(event: FormEvent) {
@@ -239,6 +278,12 @@ export default function Home() {
 
   return (
     <main className="app-shell">
+      <Script
+        id="google-identity-script"
+        src="https://accounts.google.com/gsi/client"
+        strategy="afterInteractive"
+        onReady={() => setGoogleScriptReady(true)}
+      />
       <header className="topbar">
         <a className="brand" href="#" aria-label="Signal home">
           <span className="brand-mark">S</span>
@@ -247,11 +292,12 @@ export default function Home() {
         <div className="privacy-note"><span className="privacy-dot" /> Review-first outreach</div>
         <button
           className={`connection ${gmailToken ? "connected" : ""}`}
-          onClick={connectGmail}
+          onClick={gmailToken ? disconnectGmail : connectGmail}
           type="button"
+          title={gmailToken ? "Disconnect Gmail" : "Connect Gmail"}
         >
           <span>{gmailToken ? "●" : "○"}</span>
-          {gmailToken ? "Gmail connected" : "Connect Gmail"}
+          {gmailToken ? "Gmail connected · Disconnect" : "Connect Gmail"}
         </button>
       </header>
 
@@ -262,7 +308,7 @@ export default function Home() {
           </button>
           {profileOpen && (
             <div className="profile-content">
-              <p className="aside-copy">Your researched profile and core email are saved in this browser and shape every draft.</p>
+              <p className="aside-copy">Your researched profile and core email are saved exactly in this browser and shape every draft.</p>
               <div className="portfolio-research-card">
                 <span>✓</span>
                 <div>
@@ -276,7 +322,7 @@ export default function Home() {
                 <textarea rows={10} value={profile.template} onChange={(e) => updateProfile("template", e.target.value)} />
               </label>
               <div className="template-help">
-                Required in every email: add the story, credentials, work, and intention you never want omitted. Signal may rewrite and reorder it, then adds a separate company-specific small feature pitch.
+                Saved automatically and never replaced unless you edit it. Signal preserves its meaning while adapting the email and adding a company-specific feature pitch.
               </div>
               <details className="profile-advanced">
                 <summary>Optional personal overrides</summary>

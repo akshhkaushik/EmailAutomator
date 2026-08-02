@@ -10,7 +10,7 @@ Signal researches a company website, connects that research to your experience a
 - Selects up to two relevant projects without inventing titles, claims, ownership, maturity, or URLs.
 - Embeds live-project and repository links under their proper project titles.
 - Produces an editable subject and message.
-- Requests only the Gmail `gmail.send` scope and keeps its access token in browser memory.
+- Requests only the Gmail `gmail.send` scope, keeps short-lived access tokens in browser memory, and remembers the connection preference so Google can reconnect automatically on the same browser.
 - Requires an explicit approval before each send.
 
 ## Local setup
@@ -83,7 +83,7 @@ After the first deployment, add the exact production origin to the Google OAuth 
 ## Safety and privacy
 
 - Signal never stores a Gmail password.
-- The Gmail token lasts only for the current browser session.
+- Gmail access tokens remain short-lived, are refreshed silently while the app is open, and are reacquired automatically on later visits when the existing Google grant is still valid. Disconnecting revokes the grant and clears the browser preference.
 - The résumé is read for the selected send and is not persisted by the app.
 - Company claims are restricted to readable content fetched from the supplied website.
 - Sending is single-recipient and review-first.
