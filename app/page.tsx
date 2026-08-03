@@ -14,6 +14,7 @@ type Draft = {
   subject: string;
   body: string;
   demo?: boolean;
+  source?: "ai" | "provider-ai" | "local-research";
 };
 
 type Project = { id: string; title: string; description: string; liveUrl: string; repoUrl: string };
@@ -301,7 +302,9 @@ export default function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not create the draft.");
       setDraft(result); setSubject(result.subject); setBody(result.body); setStatus("ready");
-      setNotice(result.demo ? "Preview created. Live website research is not configured." : "Draft ready. Read it once before sending.");
+      setNotice(result.source === "local-research"
+        ? "Draft ready using direct website research. The free AI providers were busy, so no paid request was required."
+        : "Draft ready. Read it once before sending.");
     } catch (error) { setStatus("idle"); setNotice(error instanceof Error ? error.message : "Something went wrong."); }
   }
 

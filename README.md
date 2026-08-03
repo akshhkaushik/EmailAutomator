@@ -52,17 +52,15 @@ No Google client secret or Gmail password is used.
 
 ### AI research and drafting
 
-On Vercel, enable **AI Gateway** for the project. Vercel automatically supplies `VERCEL_OIDC_TOKEN` to production deployments, so no OpenAI API key is required.
+For free AI drafting, create a Gemini API key in Google AI Studio and set only:
 
-For local development, either:
+```dotenv
+GEMINI_API_KEY=your_google_ai_studio_key
+```
 
-1. Link the app to Vercel and run `vercel env pull .env.local` to receive a short-lived OIDC token, or
-2. Set `AI_GATEWAY_API_KEY`, or
-3. Set `GEMINI_API_KEY` to use Gemini's free tier fallback, or
-4. Set `OPENAI_API_KEY` as a direct-provider fallback.
+The app defaults to `gemini-3.5-flash-lite`, then `gemini-2.5-flash-lite`. No Vercel AI Gateway credit card or OpenAI balance is required. If both free models are temporarily unavailable, the app extracts evidence from the company website and creates the draft locally without an AI request.
 
-The model can be changed with `AI_MODEL`, using a Vercel provider/model identifier.
-When multiple providers are configured, Aksh Outreach tries AI Gateway, Gemini, and then OpenAI.
+AI Gateway and OpenAI are disabled unless `ENABLE_PAID_AI_FALLBACKS=true`, preventing accidental billing and quota noise. When intentionally enabled, `AI_MODEL` selects the Vercel provider/model identifier. Website research is compressed before generation and model output is capped at 1,200 tokens.
 
 ### Email analytics storage
 
@@ -76,9 +74,12 @@ Connect **Upstash for Redis** from the Vercel Marketplace. Vercel injects the RE
 | `AI_MODEL` | Optional | Server only | AI Gateway model; defaults to `openai/gpt-5.4` |
 | `AI_GATEWAY_API_KEY` | Local alternative only | Secret, server only | Static Gateway authentication when OIDC is unavailable |
 | `GEMINI_API_KEY` | Optional fallback | Secret, server only | Direct Gemini access, including eligible free-tier usage |
-| `GEMINI_MODEL` | Optional fallback | Server only | Direct Gemini model; defaults to `gemini-3.5-flash` |
+| `GEMINI_LOW_COST_MODEL` | Optional | Server only | First direct Gemini model; defaults to `gemini-3.5-flash-lite` |
+| `GEMINI_MODELS` | Optional | Server only | Comma-separated direct Gemini fallback models; defaults to `gemini-2.5-flash-lite` |
+| `GEMINI_MODEL` | Optional legacy fallback | Server only | Existing direct Gemini model appended after the low-cost choices |
 | `OPENAI_API_KEY` | Optional fallback | Secret, server only | Direct OpenAI access outside Vercel |
 | `OPENAI_MODEL` | Optional fallback | Server only | Direct OpenAI model; defaults to `gpt-5.4` |
+| `ENABLE_PAID_AI_FALLBACKS` | Optional | Server only | Set to `true` only if AI Gateway/OpenAI billing fallbacks are intentionally enabled; defaults to disabled |
 | `UPSTASH_REDIS_REST_URL` | Yes, for tracking | Secret, server only | Durable analytics storage URL |
 | `UPSTASH_REDIS_REST_TOKEN` | Yes, for tracking | Secret, server only | Durable analytics storage token |
 

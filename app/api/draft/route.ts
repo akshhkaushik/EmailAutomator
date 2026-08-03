@@ -259,40 +259,173 @@ function extractGeminiText(response: {
     .trim();
 }
 
-function fallbackDraft(companyUrl: URL, recipientName: string, profile: Profile) {
-  const company = companyUrl.hostname.replace(/^www\./, "").split(".")[0];
-  const companyName = company.charAt(0).toUpperCase() + company.slice(1);
-  const detail = `the product direction and customer experience visible across ${companyUrl.hostname}`;
-  const contribution = profile.context || "building useful, polished product experiences and automating repetitive work";
-  const selectedProjects = validProjects(profile).slice(0, 2).map((project) => ({
+const RESEARCH_SIGNAL_WORDS = [
+  "product", "platform", "customer", "user", "workflow", "feature", "service", "team",
+  "business", "developer", "data", "automation", "intelligence", "security", "analytics",
+  "integration", "infrastructure", "mission", "help", "build", "manage", "create",
+];
+
+const LOW_INFORMATION_PATTERNS = [
+  /^(?:home|about|contact|pricing|careers?|blog|sign in|log in|menu|privacy|terms)$/i,
+  /(?:accept all cookies|cookie preferences|all rights reserved)/i,
+];
+
+function researchSentences(text: string) {
+  const seen = new Set<string>();
+  return text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((sentence) => sentence.replace(/^SOURCE:\s*/i, "").replace(/\s+/g, " ").trim())
+    .filter((sentence) => {
+      const key = sentence.toLowerCase();
+      if (sentence.length < 45 || sentence.length > 520 || seen.has(key)) return false;
+      if (LOW_INFORMATION_PATTERNS.some((pattern) => pattern.test(sentence))) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function sentenceScore(sentence: string, index: number) {
+  const lower = sentence.toLowerCase();
+  const signals = RESEARCH_SIGNAL_WORDS.reduce(
+    (score, word) => score + (lower.includes(word) ? 2 : 0),
+    0,
+  );
+  const specificity = /\b(?:AI|API|B2B|SaaS|ML|enterprise|mobile|software|application)\b/i.test(sentence) ? 3 : 0;
+  return signals + specificity + Math.max(0, 5 - Math.floor(index / 3));
+}
+
+function compactResearch(pages: Array<{ url: string; text: string }>, limit = 9_000) {
+  const sections = pages.slice(0, 4).map((page) => {
+    const sentences = researchSentences(page.text)
+      .map((sentence, index) => ({ sentence, index, score: sentenceScore(sentence, index) }))
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, 12)
+      .sort((left, right) => left.index - right.index)
+      .map(({ sentence }) => sentence);
+    return `SOURCE: ${page.url}\n${sentences.join(" ")}`;
+  });
+  return sections.join("\n\n").slice(0, limit);
+}
+
+function meaningfulWords(value: string) {
+  const stopWords = new Set([
+    "about", "after", "also", "and", "are", "been", "being", "build", "company", "could",
+    "from", "have", "into", "more", "only", "other", "platform", "product", "that", "their",
+    "this", "through", "using", "with", "your",
+  ]);
+  return new Set((value.toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) || [])
+    .filter((word) => !stopWords.has(word)));
+}
+
+function promptProjects(
+  projects: ReturnType<typeof validProjects>,
+  websiteText: string,
+) {
+  const companyWords = meaningfulWords(websiteText);
+  return projects
+    .map((project, index) => {
+      const projectWords = meaningfulWords(`${project.title} ${project.description}`);
+      const overlap = [...projectWords].reduce((score, word) => score + (companyWords.has(word) ? 1 : 0), 0);
+      const maturityBoost = /Evidence level: (?:live|substantial)/.test(project.description) ? 3 : 0;
+      return { project, index, score: overlap + maturityBoost };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 6)
+    .map(({ project }) => ({
+      title: project.title,
+      description: project.description.slice(0, 260),
+      liveUrl: project.liveUrl,
+      repoUrl: project.repoUrl,
+    }));
+}
+
+function companyNameFromResearch(companyUrl: URL, websiteText: string) {
+  const metadataName = websiteText.match(/(?:og:site_name|application-name):\s*([^\n.!?]{2,80})/i)?.[1];
+  const titleName = websiteText.match(/Page title:\s*([^|—–\n]{2,80})/i)?.[1];
+  const hostName = companyUrl.hostname.replace(/^www\./, "").split(".")[0];
+  return cleanGeneratedText(metadataName || titleName || hostName)
+    .replace(/\s+(?:home|official site)$/i, "")
+    .slice(0, 80) || "the team";
+}
+
+function localContribution(companyText: string) {
+  const lower = companyText.toLowerCase();
+  if (/learn|education|course|student|knowledge/.test(lower)) {
+    return {
+      idea: "a lightweight learning-progress view that shows where a learner is confident, where they paused, and the next useful concept to revisit",
+      terms: ["learning-progress view", "next useful concept"],
+    };
+  }
+  if (/health|clinical|patient|medical|care/.test(lower)) {
+    return {
+      idea: "a small evidence-and-review panel that keeps generated guidance traceable and gives a human a clear approval step before it reaches users",
+      terms: ["evidence-and-review panel", "human approval step"],
+    };
+  }
+  if (/developer|api|infrastructure|workflow|automation/.test(lower)) {
+    return {
+      idea: "a compact workflow-health view that surfaces failed steps, retry context, and the most useful next action for an operator",
+      terms: ["workflow-health view", "retry context"],
+    };
+  }
+  if (/finance|payment|bank|credit|accounting|compliance/.test(lower)) {
+    return {
+      idea: "a narrow review queue that explains why an item needs attention, preserves its evidence trail, and makes the final human decision easier to audit",
+      terms: ["review queue", "evidence trail"],
+    };
+  }
+  if (/map|geo|climate|environment|satellite|location/.test(lower)) {
+    return {
+      idea: "a focused comparison layer that lets users inspect changes across locations or time while keeping the underlying source visible",
+      terms: ["comparison layer", "underlying source"],
+    };
+  }
+  return {
+    idea: "a small feedback-and-insight panel that captures where users hesitate, groups recurring friction, and gives the team a clearer next improvement to test",
+    terms: ["feedback-and-insight panel", "recurring friction"],
+  };
+}
+
+function researchedFallbackDraft(
+  companyUrl: URL,
+  recipientName: string,
+  profile: Profile,
+  pages: Array<{ url: string; text: string }>,
+  projects: ReturnType<typeof validProjects>,
+) {
+  const websiteText = compactResearch(pages, 8_000);
+  const companyName = companyNameFromResearch(companyUrl, websiteText);
+  const evidence = researchSentences(websiteText)
+    .map((sentence, index) => ({ sentence, index, score: sentenceScore(sentence, index) }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 3)
+    .map(({ sentence }) => sentence);
+  const observation = evidence[0] || `The way ${companyName} presents its product and user experience stood out to me.`;
+  const contribution = localContribution(websiteText);
+  const matched = promptProjects(projects, websiteText).slice(0, 1).map((project) => ({
     ...project,
-    reason: "Included as a concrete example of relevant product work.",
+    reason: "This felt like the closest example of work relevant to the company’s visible product direction.",
   }));
   return {
     companyUrl: companyUrl.origin,
     companyName,
-    companySummary: `A preview research summary for ${companyUrl.hostname}. Live website analysis activates when Gemini, AI Gateway, or an OpenAI fallback is configured.`,
-    evidence: [
-      `Company source: ${companyUrl.origin}`,
-      "The live research service is not configured yet, so no unverified company claims were added.",
-    ],
-    contributionIdeas: [
-      contribution,
-      `Explore a small proof of concept aligned with your ${profile.role || "target role"}.`,
-    ],
-    selectedProjects,
+    companySummary: evidence.slice(0, 2).join(" ") || `Research was extracted directly from ${companyUrl.hostname}.`,
+    evidence: evidence.length > 0 ? evidence : [`Company source: ${companyUrl.origin}`],
+    contributionIdeas: [contribution.idea],
+    selectedProjects: matched,
     subject: contributionSubject(companyName),
     body: composeEmail({
       recipient: recipientName || "there",
       companyName,
       companyUrl: companyUrl.origin,
-      companyObservation: `What stood out was ${detail}.`,
-      senderWork: profile.context || "I build practical product experiences and workflow automation.",
-      pitch: `As a small first contribution, I could help with ${contribution}.`,
-      highlightTerms: ["small first contribution", "proof of concept", profile.role || "target role"],
-      selectedProjects,
+      companyObservation: `What stood out to me was this: ${observation}`,
+      senderWork: profile.context || "I enjoy turning ambiguous product problems into practical, inspectable systems.",
+      pitch: contribution.idea,
+      highlightTerms: contribution.terms,
+      selectedProjects: matched,
     }),
     demo: true,
+    source: "local-research",
   };
 }
 
@@ -382,8 +515,11 @@ export async function POST(request: Request) {
     const resolvedCompany = resolveCompanyUrl(payload.companyUrl, payload.recipientEmail);
     let companyUrl = resolvedCompany.url;
     const profile = payload.profile || {};
-    let gatewayToken = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
-    if (!gatewayToken && process.env.VERCEL) {
+    const paidFallbacksEnabled = process.env.ENABLE_PAID_AI_FALLBACKS === "true";
+    let gatewayToken = paidFallbacksEnabled
+      ? process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN
+      : undefined;
+    if (paidFallbacksEnabled && !gatewayToken && process.env.VERCEL) {
       try {
         gatewayToken = await getVercelOidcToken();
       } catch {
@@ -391,10 +527,7 @@ export async function POST(request: Request) {
       }
     }
     const geminiKey = process.env.GEMINI_API_KEY;
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!gatewayToken && !geminiKey && !openaiKey) {
-      return Response.json(fallbackDraft(companyUrl, payload.recipientName || "", profile));
-    }
+    const openaiKey = paidFallbacksEnabled ? process.env.OPENAI_API_KEY : undefined;
     const projects = validProjects(profile);
 
     let homePage;
@@ -434,10 +567,8 @@ export async function POST(request: Request) {
       return true;
     });
     if (pages.length === 0) throw new Error("The company website did not contain enough readable information.");
-    const websiteText = pages
-      .map((page) => `SOURCE: ${page.url}\n${page.text}`)
-      .join("\n\n")
-      .slice(0, 65_000);
+    const websiteText = compactResearch(pages);
+    const compactProjects = promptProjects(projects, websiteText);
 
     const schema = {
       type: "object",
@@ -501,85 +632,101 @@ export async function POST(request: Request) {
     const aiRequest = {
       store: false,
       instructions:
-        "You are a thoughtful researcher and humble job-outreach writer. The application itself always inserts Aksh's BITS Pilani introduction, four fixed linked work examples (CEO Voice Platform, Veritas, EvoComb, and GLOB), a humble preface before the feature idea, a low-pressure closing, and a fixed signature. Do not repeat or paraphrase those fixed sections. Your job is to add a company-specific observation, preserve only unique details from the sender's editable core content, and state one small contribution idea directly. First infer what the company actually builds, who it serves, and one current product or operational priority from the supplied sources. Compare that need against the supplied researched capability profile and complete project catalog; do not ask the sender for project details. Write with humility and genuine curiosity. Never sound entitled, certain about the company’s needs, sales-oriented, or overly flattering. Propose exactly one feature or proof of concept that one engineer could prototype in a few days. Name the user or workflow it helps and the practical benefit. Do not begin pitch with 'I wondered', 'I was wondering', or another hedge because the application adds that language. Every company claim must be traceable to supplied website text. Never invent metrics, customers, funding, technologies, referral sources, names, or open roles. In particular, never claim the sender found the company through YC unless the supplied website text explicitly proves that relationship. Select one strongest additional project by default; select a second only if it proves a different essential capability. Copy titles and URLs exactly. The application will suppress projects already in the fixed portfolio block. Return 3-6 highlightTerms copied exactly from the drafted prose: short product names, technical capabilities, or the proposed feature—not generic phrases or sentences. Do not place URLs in any prose field. Avoid spam-like language, hype, pressure, generic praise, and repeated calls to action.",
-      input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || "Product-minded software engineer"}\nSender context (required in substance): ${profile.context || PERSONAL_RESEARCH_SUMMARY}\nREQUIRED CORE EMAIL CONTENT (preserve all meaningful sender information; wording may adapt): ${profile.template || "Use the researched personal profile and ask to contribute to and join the team."}\n\nRESEARCHED PERSONAL PROFILE:\n${PERSONAL_RESEARCH_SUMMARY}\n\nSTARTUP CAPABILITY MAP:\n- ${STARTUP_CAPABILITIES.join("\n- ")}\n\nCOMPLETE ORIGINAL PROJECT CATALOG (use exact titles and URLs): ${JSON.stringify(projects)}\n\nWebsite text:\n${websiteText}`,
+        "Write humble, evidence-based startup outreach. The app adds Aksh's BITS Pilani introduction, four fixed linked projects (CEO Voice Platform, Veritas, EvoComb, GLOB), a humble pitch preface, closing, and signature; never repeat them. From supplied sources, identify what the company builds, who it helps, and one visible priority. Add a specific observation and exactly one feature that one engineer could prototype in a few days, naming its user and benefit. Preserve only unique sender context. Every company claim must be traceable to the sources. Never invent metrics, customers, funding, technologies, referral sources, names, roles, or YC affiliation. Select at most two pre-ranked projects, copying titles and URLs exactly. Return 3-6 exact short highlight terms from your prose. No URLs in prose fields. Avoid hype, pressure, generic praise, and repeated calls to action.",
+      input: `Company URL: ${companyUrl.toString()}\nRecipient: ${payload.recipientName || "unknown"}\nSender role: ${profile.role || "Product-minded software engineer"}\nSender context: ${(profile.context || PERSONAL_RESEARCH_SUMMARY).slice(0, 1_000)}\nCORE EMAIL PREFERENCE: ${(profile.template || "Ask humbly to contribute to and learn from the team.").slice(0, 800)}\n\nRELEVANT CAPABILITIES:\n- ${STARTUP_CAPABILITIES.slice(0, 5).join("\n- ")}\n\nPRE-RANKED PROJECTS: ${JSON.stringify(compactProjects)}\n\nCOMPRESSED WEBSITE RESEARCH:\n${websiteText}`,
       text: { format: { type: "json_schema", name: "outreach_draft", strict: true, schema } },
+      max_output_tokens: 1_200,
     };
 
     let outputText = "";
     const providerErrors: string[] = [];
 
-    if (gatewayToken) {
-      const gatewayResponse = await fetch("https://ai-gateway.vercel.sh/v1/responses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${gatewayToken}` },
-        body: JSON.stringify({
-          ...aiRequest,
-          model: process.env.AI_MODEL || "openai/gpt-5.4",
-        }),
-      });
-      const gatewayJson = await gatewayResponse.json() as {
-        error?: { message?: string };
-        output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
-      };
-      if (gatewayResponse.ok) outputText = extractOutputText(gatewayJson) || "";
-      else providerErrors.push(`AI Gateway: ${gatewayJson.error?.message || "request failed"}`);
+    if (geminiKey) {
+      const geminiModels = [...new Set([
+        process.env.GEMINI_LOW_COST_MODEL || "gemini-3.5-flash-lite",
+        ...(process.env.GEMINI_MODELS || "").split(",").map((model) => model.trim()).filter(Boolean),
+        "gemini-2.5-flash-lite",
+        process.env.GEMINI_MODEL || "",
+      ].filter(Boolean))].slice(0, 3);
+
+      for (const geminiModel of geminiModels) {
+        try {
+          const geminiResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-goog-api-key": geminiKey,
+              },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: aiRequest.instructions }] },
+                contents: [{ role: "user", parts: [{ text: aiRequest.input }] }],
+                generationConfig: {
+                  responseMimeType: "application/json",
+                  responseJsonSchema: schema,
+                  maxOutputTokens: 1_200,
+                },
+              }),
+            },
+          );
+          const geminiJson = await geminiResponse.json() as {
+            error?: { message?: string };
+            candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+          };
+          if (geminiResponse.ok) {
+            outputText = extractGeminiText(geminiJson) || "";
+            if (outputText) break;
+          } else {
+            providerErrors.push(`Gemini ${geminiModel}: ${geminiJson.error?.message || "request failed"}`);
+          }
+        } catch (error) {
+          providerErrors.push(`Gemini ${geminiModel}: ${error instanceof Error ? error.message : "request failed"}`);
+        }
+      }
     }
 
-    if (!outputText && geminiKey) {
-      const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-      const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`,
-        {
+    if (!outputText && gatewayToken) {
+      try {
+        const gatewayResponse = await fetch("https://ai-gateway.vercel.sh/v1/responses", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": geminiKey,
-          },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: aiRequest.instructions }],
-            },
-            contents: [{
-              role: "user",
-              parts: [{ text: aiRequest.input }],
-            }],
-            generationConfig: {
-              responseMimeType: "application/json",
-              responseJsonSchema: schema,
-            },
-          }),
-        },
-      );
-      const geminiJson = await geminiResponse.json() as {
-        error?: { message?: string };
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-      if (geminiResponse.ok) outputText = extractGeminiText(geminiJson) || "";
-      else providerErrors.push(`Gemini: ${geminiJson.error?.message || "request failed"}`);
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${gatewayToken}` },
+          body: JSON.stringify({ ...aiRequest, model: process.env.AI_MODEL || "openai/gpt-5.4" }),
+        });
+        const gatewayJson = await gatewayResponse.json() as {
+          error?: { message?: string };
+          output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+        };
+        if (gatewayResponse.ok) outputText = extractOutputText(gatewayJson) || "";
+        else providerErrors.push(`AI Gateway: ${gatewayJson.error?.message || "request failed"}`);
+      } catch (error) {
+        providerErrors.push(`AI Gateway: ${error instanceof Error ? error.message : "request failed"}`);
+      }
     }
 
     if (!outputText && openaiKey) {
-      const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-        body: JSON.stringify({
-          ...aiRequest,
-          model: process.env.OPENAI_MODEL || "gpt-5.4",
-        }),
-      });
-      const openaiJson = await openaiResponse.json() as {
-        error?: { message?: string };
-        output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
-      };
-      if (openaiResponse.ok) outputText = extractOutputText(openaiJson) || "";
-      else providerErrors.push(`OpenAI: ${openaiJson.error?.message || "request failed"}`);
+      try {
+        const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+          body: JSON.stringify({ ...aiRequest, model: process.env.OPENAI_MODEL || "gpt-5.4" }),
+        });
+        const openaiJson = await openaiResponse.json() as {
+          error?: { message?: string };
+          output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+        };
+        if (openaiResponse.ok) outputText = extractOutputText(openaiJson) || "";
+        else providerErrors.push(`OpenAI: ${openaiJson.error?.message || "request failed"}`);
+      } catch (error) {
+        providerErrors.push(`OpenAI: ${error instanceof Error ? error.message : "request failed"}`);
+      }
     }
 
     if (!outputText) {
-      throw new Error(providerErrors.join(" ") || "The research service returned an empty draft.");
+      if (providerErrors.length > 0) console.warn("AI providers unavailable; using local research fallback.", providerErrors);
+      return Response.json(researchedFallbackDraft(researchBase, payload.recipientName || "", profile, pages, projects));
     }
-    const result = JSON.parse(outputText) as {
+    let result: {
       companyName: string;
       companySummary: string;
       evidence: string[];
@@ -590,6 +737,12 @@ export async function POST(request: Request) {
       senderWork: string;
       pitch: string;
     };
+    try {
+      result = JSON.parse(outputText) as typeof result;
+    } catch {
+      console.warn("AI provider returned invalid JSON; using local research fallback.");
+      return Response.json(researchedFallbackDraft(researchBase, payload.recipientName || "", profile, pages, projects));
+    }
     const allowedProjects = new Map(projects.map((project) => [project.liveUrl, project]));
     let selectedProjects = result.selectedProjects.flatMap((project) => {
       const allowed = allowedProjects.get(project.liveUrl);
@@ -620,6 +773,7 @@ export async function POST(request: Request) {
         highlightTerms: result.highlightTerms,
         selectedProjects,
       }),
+      source: "ai",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not research this company.";
