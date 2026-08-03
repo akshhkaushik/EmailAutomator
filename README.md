@@ -60,6 +60,8 @@ GEMINI_API_KEY=your_google_ai_studio_key
 
 The app defaults to `gemini-3.5-flash-lite`, then `gemini-2.5-flash-lite`. No Vercel AI Gateway credit card or OpenAI balance is required. If both free models are temporarily unavailable, the app extracts evidence from the company website and creates the draft locally without an AI request.
 
+Company research first requests the public site directly with browser-compatible headers. If a public page returns `403`, a bot challenge, JavaScript-only shell, or unusable HTML, it falls back to the free Jina Reader service and finally a domain-restricted public web search. An optional `JINA_API_KEY` increases Reader limits but is not required for basic use. Authentication walls and private pages are never bypassed.
+
 AI Gateway and OpenAI are disabled unless `ENABLE_PAID_AI_FALLBACKS=true`, preventing accidental billing and quota noise. When intentionally enabled, `AI_MODEL` selects the Vercel provider/model identifier. Website research is compressed before generation and model output is capped at 1,200 tokens.
 
 ### Email analytics storage
@@ -80,6 +82,7 @@ Connect **Upstash for Redis** from the Vercel Marketplace. Vercel injects the RE
 | `OPENAI_API_KEY` | Optional fallback | Secret, server only | Direct OpenAI access outside Vercel |
 | `OPENAI_MODEL` | Optional fallback | Server only | Direct OpenAI model; defaults to `gpt-5.4` |
 | `ENABLE_PAID_AI_FALLBACKS` | Optional | Server only | Set to `true` only if AI Gateway/OpenAI billing fallbacks are intentionally enabled; defaults to disabled |
+| `JINA_API_KEY` | Optional | Server only | Higher limits for blocked-site recovery through Jina Reader; anonymous basic usage works without it |
 | `UPSTASH_REDIS_REST_URL` | Yes, for tracking | Secret, server only | Durable analytics storage URL |
 | `UPSTASH_REDIS_REST_TOKEN` | Yes, for tracking | Secret, server only | Durable analytics storage token |
 

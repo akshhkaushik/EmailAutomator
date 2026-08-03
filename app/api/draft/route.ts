@@ -144,6 +144,15 @@ function metadataFromHtml(html: string) {
 }
 
 function researchTextFromHtml(html: string, limit = 22_000) {
+  const looksLikeHtml = /<(?:html|head|body|main|section|article|meta)\b/i.test(html);
+  if (!looksLikeHtml) {
+    return html
+      .replace(/\r/g, "")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+      .slice(0, limit);
+  }
   const metadata = metadataFromHtml(html);
   const visibleText = textFromHtml(html, limit);
   return [metadata, visibleText && !metadata.includes(visibleText) ? visibleText : ""]
@@ -158,7 +167,11 @@ const RESEARCH_PATH_HINTS = [
 
 function researchLinks(html: string, baseUrl: URL) {
   const candidates = new Map<string, number>();
-  for (const match of html.matchAll(/href=["']([^"'#]+)["']/gi)) {
+  const discoveredLinks = [
+    ...html.matchAll(/href=["']([^"'#]+)["']/gi),
+    ...html.matchAll(/\[[^\]]*\]\((https?:\/\/[^\s)#]+)[^)]*\)/gi),
+  ];
+  for (const match of discoveredLinks) {
     try {
       const url = new URL(match[1], baseUrl);
       if (url.origin !== baseUrl.origin || !["http:", "https:"].includes(url.protocol)) continue;
@@ -183,14 +196,97 @@ function researchLinks(html: string, baseUrl: URL) {
     .map(([url]) => url);
 }
 
-async function fetchResearchPage(url: string) {
-  const response = await fetch(url, {
-    redirect: "follow",
-    headers: { "User-Agent": "SignalOutreachResearch/1.0" },
-    signal: AbortSignal.timeout(9_000),
+const BROWSER_FETCH_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Cache-Control": "no-cache",
+};
+
+function blockedPageText(value: string) {
+  const sample = value.slice(0, 5_000).toLowerCase();
+  return sample.length < 3_500 && [
+    "access denied", "attention required", "checking your browser", "enable javascript and cookies",
+    "just a moment", "security check required", "verify you are human", "target url returned error 403",
+  ].some((phrase) => sample.includes(phrase));
+}
+
+async function safeFetch(url: string, headers: Record<string, string>, timeout: number) {
+  let current = normalizeUrl(url);
+  for (let redirectCount = 0; redirectCount <= 4; redirectCount += 1) {
+    const response = await fetch(current, {
+      redirect: "manual",
+      headers,
+      signal: AbortSignal.timeout(timeout),
+    });
+    if (response.status < 300 || response.status >= 400) return response;
+    const location = response.headers.get("location");
+    if (!location) return response;
+    current = normalizeUrl(new URL(location, current).toString());
+  }
+  throw new Error("Website redirected too many times.");
+}
+
+function readerHeaders() {
+  const headers: Record<string, string> = {
+    Accept: "text/plain",
+    "X-Respond-With": "markdown",
+    "X-Max-Tokens": "2500",
+    "X-Retain-Images": "none",
+    "X-Retain-Links": "all",
+  };
+  if (process.env.JINA_API_KEY) headers.Authorization = `Bearer ${process.env.JINA_API_KEY}`;
+  return headers;
+}
+
+async function fetchWithReader(target: URL) {
+  const readerUrl = `https://r.jina.ai/${target.toString()}`;
+  const response = await fetch(readerUrl, {
+    headers: readerHeaders(),
+    signal: AbortSignal.timeout(14_000),
   });
-  if (!response.ok) throw new Error(`Website page returned ${response.status}.`);
-  return { url: response.url, html: await response.text() };
+  const text = await response.text();
+  if (!response.ok || text.length < 80 || blockedPageText(text)) {
+    throw new Error(`Public reader returned ${response.status}.`);
+  }
+  return { url: target.toString(), html: text, recovered: true };
+}
+
+async function fetchSearchContext(target: URL) {
+  const query = `site:${target.hostname} ${target.hostname} product company about`;
+  const response = await fetch(`https://s.jina.ai/${encodeURIComponent(query)}`, {
+    headers: readerHeaders(),
+    signal: AbortSignal.timeout(14_000),
+  });
+  const text = await response.text();
+  if (!response.ok || text.length < 80 || blockedPageText(text)) {
+    throw new Error(`Public search returned ${response.status}.`);
+  }
+  return {
+    url: target.toString(),
+    html: `Public web results for ${target.hostname}:\n${text}`,
+    recovered: true,
+  };
+}
+
+async function fetchResearchPage(url: string, allowSearchFallback = false) {
+  const target = normalizeUrl(url);
+  try {
+    const response = await safeFetch(target.toString(), BROWSER_FETCH_HEADERS, 8_000);
+    const html = await response.text();
+    if (!response.ok) throw new Error(`Website page returned ${response.status}.`);
+    if (html.length < 80 || blockedPageText(textFromHtml(html, 5_000))) {
+      throw new Error("Website returned a bot-check page instead of readable content.");
+    }
+    return { url: response.url || target.toString(), html, recovered: false };
+  } catch (directError) {
+    try {
+      return await fetchWithReader(target);
+    } catch {
+      if (allowSearchFallback) return fetchSearchContext(target);
+      throw directError;
+    }
+  }
 }
 
 function cleanGeneratedText(value: string) {
@@ -341,11 +437,23 @@ function promptProjects(
 
 function companyNameFromResearch(companyUrl: URL, websiteText: string) {
   const metadataName = websiteText.match(/(?:og:site_name|application-name):\s*([^\n.!?]{2,80})/i)?.[1];
-  const titleName = websiteText.match(/Page title:\s*([^|—–\n]{2,80})/i)?.[1];
+  const titleName = websiteText.match(/(?:Page title|Title):\s*([^|—–\n]{2,80})/i)?.[1];
   const hostName = companyUrl.hostname.replace(/^www\./, "").split(".")[0];
   return cleanGeneratedText(metadataName || titleName || hostName)
+    .replace(/\s+(?:description|og:title|og:description|twitter:title|url source):.*$/i, "")
+    .replace(/\s+(?:-|—|–|\|)\s+.*$/, "")
     .replace(/\s+(?:home|official site)$/i, "")
     .slice(0, 80) || "the team";
+}
+
+function cleanResearchEvidence(value: string) {
+  const description = value.match(
+    /(?:^|\s)(?:description|og:description|twitter:description):\s*(.*?)(?=\s+(?:og:title|og:description|twitter:title|twitter:description|url source):|$)/i,
+  )?.[1];
+  return cleanGeneratedText(description || value)
+    .replace(/^(?:Page title|Title|og:title|twitter:title):\s*/i, "")
+    .replace(/\s+(?:description|og:title|og:description|twitter:title|twitter:description|url source):.*$/i, "")
+    .trim();
 }
 
 function localContribution(companyText: string) {
@@ -395,11 +503,12 @@ function researchedFallbackDraft(
 ) {
   const websiteText = compactResearch(pages, 8_000);
   const companyName = companyNameFromResearch(companyUrl, websiteText);
-  const evidence = researchSentences(websiteText)
+  const evidenceCandidates = researchSentences(websiteText)
     .map((sentence, index) => ({ sentence, index, score: sentenceScore(sentence, index) }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
-    .slice(0, 3)
-    .map(({ sentence }) => sentence);
+    .map(({ sentence }) => cleanResearchEvidence(sentence))
+    .filter((sentence) => sentence.length >= 35);
+  const evidence = [...new Set(evidenceCandidates)].slice(0, 3);
   const observation = evidence[0] || `The way ${companyName} presents its product and user experience stood out to me.`;
   const contribution = localContribution(websiteText);
   const matched = promptProjects(projects, websiteText).slice(0, 1).map((project) => ({
@@ -532,11 +641,11 @@ export async function POST(request: Request) {
 
     let homePage;
     try {
-      homePage = await fetchResearchPage(companyUrl.toString());
+      homePage = await fetchResearchPage(companyUrl.toString(), true);
     } catch (error) {
       if (!resolvedCompany.inferred || companyUrl.hostname.startsWith("www.")) throw error;
       companyUrl = normalizeUrl(`https://www.${companyUrl.hostname}`);
-      homePage = await fetchResearchPage(companyUrl.toString());
+      homePage = await fetchResearchPage(companyUrl.toString(), true);
     }
     const researchBase = normalizeUrl(homePage.url);
     const seedPages = [homePage];
@@ -550,7 +659,7 @@ export async function POST(request: Request) {
     }
     const linkedCandidates = [...new Set(seedPages.flatMap((page) =>
       researchLinks(page.html, normalizeUrl(page.url)),
-    ))].slice(0, 4);
+    ))].slice(0, 3);
     const linkedPages = await Promise.allSettled(
       linkedCandidates.map((url) => fetchResearchPage(url)),
     );
