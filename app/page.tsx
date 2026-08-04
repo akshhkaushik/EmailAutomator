@@ -298,6 +298,7 @@ export default function Home() {
       const response = await fetch("/api/draft", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companyUrl, recipientEmail, recipientName, profile }),
+        signal: AbortSignal.timeout(55_000),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not create the draft.");
@@ -305,7 +306,13 @@ export default function Home() {
       setNotice(result.source === "local-research"
         ? "Draft ready using direct website research. The free AI providers were busy, so no paid request was required."
         : "Draft ready. Read it once before sending.");
-    } catch (error) { setStatus("idle"); setNotice(error instanceof Error ? error.message : "Something went wrong."); }
+    } catch (error) {
+      setStatus("idle");
+      const timedOut = error instanceof DOMException && error.name === "TimeoutError";
+      setNotice(timedOut
+        ? "Research took too long. Please try once more; the app will reuse faster public fallbacks."
+        : error instanceof Error ? error.message : "Something went wrong.");
+    }
   }
 
   async function sendEmail() {

@@ -1,6 +1,8 @@
 import { getVercelOidcToken } from "@vercel/oidc";
 import { PERSONAL_RESEARCH_SUMMARY, RESEARCHED_PROJECTS, STARTUP_CAPABILITIES } from "@/lib/personal-profile";
 
+export const maxDuration = 60;
+
 type Profile = {
   name?: string;
   role?: string;
@@ -213,11 +215,14 @@ function blockedPageText(value: string) {
 
 async function safeFetch(url: string, headers: Record<string, string>, timeout: number) {
   let current = normalizeUrl(url);
+  const deadline = Date.now() + timeout;
   for (let redirectCount = 0; redirectCount <= 4; redirectCount += 1) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error("Website request timed out.");
     const response = await fetch(current, {
       redirect: "manual",
       headers,
-      signal: AbortSignal.timeout(timeout),
+      signal: AbortSignal.timeout(remaining),
     });
     if (response.status < 300 || response.status >= 400) return response;
     const location = response.headers.get("location");
@@ -243,7 +248,7 @@ async function fetchWithReader(target: URL) {
   const readerUrl = `https://r.jina.ai/${target.toString()}`;
   const response = await fetch(readerUrl, {
     headers: readerHeaders(),
-    signal: AbortSignal.timeout(14_000),
+    signal: AbortSignal.timeout(9_000),
   });
   const text = await response.text();
   if (!response.ok || text.length < 80 || blockedPageText(text)) {
@@ -256,7 +261,7 @@ async function fetchSearchContext(target: URL) {
   const query = `site:${target.hostname} ${target.hostname} product company about`;
   const response = await fetch(`https://s.jina.ai/${encodeURIComponent(query)}`, {
     headers: readerHeaders(),
-    signal: AbortSignal.timeout(14_000),
+    signal: AbortSignal.timeout(8_000),
   });
   const text = await response.text();
   if (!response.ok || text.length < 80 || blockedPageText(text)) {
@@ -269,10 +274,10 @@ async function fetchSearchContext(target: URL) {
   };
 }
 
-async function fetchResearchPage(url: string, allowSearchFallback = false) {
+async function fetchResearchPage(url: string, allowSearchFallback = false, allowReaderFallback = true) {
   const target = normalizeUrl(url);
   try {
-    const response = await safeFetch(target.toString(), BROWSER_FETCH_HEADERS, 8_000);
+    const response = await safeFetch(target.toString(), BROWSER_FETCH_HEADERS, 6_000);
     const html = await response.text();
     if (!response.ok) throw new Error(`Website page returned ${response.status}.`);
     if (html.length < 80 || blockedPageText(textFromHtml(html, 5_000))) {
@@ -280,6 +285,7 @@ async function fetchResearchPage(url: string, allowSearchFallback = false) {
     }
     return { url: response.url || target.toString(), html, recovered: false };
   } catch (directError) {
+    if (!allowReaderFallback) throw directError;
     try {
       return await fetchWithReader(target);
     } catch {
@@ -611,6 +617,7 @@ function composeEmail(input: {
 }
 
 export async function POST(request: Request) {
+  const requestStartedAt = Date.now();
   try {
     const payload = await request.json() as {
       companyUrl?: string;
@@ -651,7 +658,7 @@ export async function POST(request: Request) {
     const seedPages = [homePage];
     if (researchBase.pathname !== "/" || researchBase.search) {
       try {
-        const rootPage = await fetchResearchPage(researchBase.origin);
+        const rootPage = await fetchResearchPage(researchBase.origin, false, false);
         if (rootPage.url !== homePage.url || rootPage.html !== homePage.html) seedPages.push(rootPage);
       } catch {
         // The supplied route is still usable when the root homepage cannot be fetched.
@@ -661,7 +668,7 @@ export async function POST(request: Request) {
       researchLinks(page.html, normalizeUrl(page.url)),
     ))].slice(0, 3);
     const linkedPages = await Promise.allSettled(
-      linkedCandidates.map((url) => fetchResearchPage(url)),
+      linkedCandidates.map((url) => fetchResearchPage(url, false, false)),
     );
     const pageCandidates = [
       ...seedPages.map((page) => ({ url: page.url, text: researchTextFromHtml(page.html) })),
@@ -756,9 +763,10 @@ export async function POST(request: Request) {
         ...(process.env.GEMINI_MODELS || "").split(",").map((model) => model.trim()).filter(Boolean),
         "gemini-2.5-flash-lite",
         process.env.GEMINI_MODEL || "",
-      ].filter(Boolean))].slice(0, 3);
+      ].filter(Boolean))].slice(0, 2);
 
       for (const geminiModel of geminiModels) {
+        if (Date.now() - requestStartedAt > 40_000) break;
         try {
           const geminiResponse = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`,
@@ -777,6 +785,7 @@ export async function POST(request: Request) {
                   maxOutputTokens: 1_200,
                 },
               }),
+              signal: AbortSignal.timeout(10_000),
             },
           );
           const geminiJson = await geminiResponse.json() as {
@@ -795,12 +804,13 @@ export async function POST(request: Request) {
       }
     }
 
-    if (!outputText && gatewayToken) {
+    if (!outputText && gatewayToken && Date.now() - requestStartedAt < 44_000) {
       try {
         const gatewayResponse = await fetch("https://ai-gateway.vercel.sh/v1/responses", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${gatewayToken}` },
           body: JSON.stringify({ ...aiRequest, model: process.env.AI_MODEL || "openai/gpt-5.4" }),
+          signal: AbortSignal.timeout(8_000),
         });
         const gatewayJson = await gatewayResponse.json() as {
           error?: { message?: string };
@@ -813,12 +823,13 @@ export async function POST(request: Request) {
       }
     }
 
-    if (!outputText && openaiKey) {
+    if (!outputText && openaiKey && Date.now() - requestStartedAt < 44_000) {
       try {
         const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
           body: JSON.stringify({ ...aiRequest, model: process.env.OPENAI_MODEL || "gpt-5.4" }),
+          signal: AbortSignal.timeout(8_000),
         });
         const openaiJson = await openaiResponse.json() as {
           error?: { message?: string };
