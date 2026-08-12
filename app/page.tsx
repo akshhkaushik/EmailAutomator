@@ -308,7 +308,7 @@ export default function Home() {
       setNotice(researchResult.contact?.email
         ? `Draft ready for ${researchResult.contact.founderName}. The address passed the configured deliverability check.`
         : researchResult.selectedFounder
-          ? `Draft ready for ${researchResult.selectedFounder.name}, but no safely verified email was found. Review the ordered candidates and enter only a confirmed address.`
+          ? `Draft ready for ${researchResult.selectedFounder.name}, but no safely verified email was found. Review the ordered candidates; sending remains blocked until verification succeeds.`
           : "The startup was researched, but no founder was supported by the public page. The draft is ready without a recipient; verify a founder before sending.");
     } catch (error) {
       setStatus("idle");

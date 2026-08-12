@@ -87,9 +87,10 @@ export async function boundedText(response: Response, maxBytes: number) {
 
 async function guardedFetch(
   input: URL,
-  options: { maxBytes: number; accept: string; timeout?: number; respectRobots?: boolean },
+  options: { maxBytes: number; accept: string; timeout?: number; respectRobots?: boolean; preferMarkdownAlternate?: boolean },
 ) {
   let current = input;
+  let followedMarkdownAlternate = false;
   const deadline = Date.now() + (options.timeout || REQUEST_TIMEOUT_MS);
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     await assertPublicDestination(current);
@@ -114,9 +115,31 @@ async function guardedFetch(
       current = parseHttpUrl(new URL(location, current).toString(), "Discovery redirect");
       continue;
     }
+    if (options.preferMarkdownAlternate && !followedMarkdownAlternate) {
+      const alternate = markdownAlternateUrl(response.headers.get("link"), current);
+      if (alternate) {
+        await response.body?.cancel();
+        current = alternate;
+        followedMarkdownAlternate = true;
+        continue;
+      }
+    }
     return { response, text: await boundedText(response, options.maxBytes), finalUrl: current };
   }
   throw new Error("Discovery source redirected too many times.");
+}
+
+export function markdownAlternateUrl(linkHeader: string | null, source: URL) {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(/,(?=\s*<)/)) {
+    const href = part.match(/<([^>]+)>/)?.[1];
+    if (!href || !/\brel\s*=\s*["']?alternate["']?/i.test(part) || !/\btype\s*=\s*["']text\/markdown["']/i.test(part)) continue;
+    try {
+      const candidate = new URL(href, source);
+      if (candidate.origin === source.origin && ["http:", "https:"].includes(candidate.protocol)) return candidate;
+    } catch { /* Ignore malformed alternate representations. */ }
+  }
+  return null;
 }
 
 class RetryableHttpError extends Error {
@@ -182,4 +205,21 @@ export async function fetchPublicPortfolioPage(input: string) {
   }
   if (text.trim().length < 40) throw new Error("Portfolio page did not contain enough readable HTML.");
   return { html: text, sourceUrl: finalUrl.toString() };
+}
+
+export async function fetchPublicResearchPage(input: string) {
+  const target = parseHttpUrl(input, "Research URL");
+  const { response, text, finalUrl } = await guardedFetch(target, {
+    maxBytes: MAX_HTML_BYTES,
+    accept: "text/markdown,text/html,application/xhtml+xml;q=0.9",
+    respectRobots: true,
+    preferMarkdownAlternate: true,
+  });
+  if (!response.ok) throw new Error(`Research page returned HTTP ${response.status}.`);
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType && !/text\/html|application\/xhtml\+xml|text\/markdown/i.test(contentType)) {
+    throw new Error("Research URL did not return a readable web page.");
+  }
+  if (text.trim().length < 40) throw new Error("Research page did not contain enough readable content.");
+  return { content: text, sourceUrl: finalUrl.toString(), contentType };
 }
