@@ -4,6 +4,7 @@ import { fetchPublicResearchPage } from "@/lib/discovery/http";
 import { normalizeDomain } from "@/lib/discovery/normalize";
 import { enforceStartupResearchRateLimit } from "@/lib/discovery/rate-limit";
 import { HunterEmailFinder } from "@/lib/contacts/hunter";
+import { loadPublicEmailDocuments } from "@/lib/contacts/public-documents";
 import { findOneFounderEmail } from "@/lib/contacts/single-link";
 import { errorName, structuredLog } from "@/lib/observability";
 import { companyNameFromContent, foundersFromContent, linkedCompanyUrlFromContent } from "@/lib/research/content";
@@ -36,13 +37,22 @@ export async function POST(request: Request) {
     const founders = [...new Map([...foundersFromContent(suppliedContent), ...foundersFromContent(companyContent)].map((founder) => [founder.name.toLowerCase(), founder])).values()];
     const selectedFounder = founders[0] || null;
     const domain = normalizeDomain(resolvedUrl.toString());
+    const observedAt = new Date().toISOString();
+    const documents = domain ? await loadPublicEmailDocuments(
+      [resolvedUrl.origin, suppliedUrl.toString()],
+      [
+        { sourceUrl: suppliedUrl.toString(), content: suppliedContent, observedAt },
+        { sourceUrl: resolvedUrl.toString(), content: companyContent, observedAt },
+      ],
+    ) : [];
+    const finders = process.env.HUNTER_API_KEY ? [new HunterEmailFinder(process.env.HUNTER_API_KEY)] : [];
     const contact = selectedFounder && domain ? await findOneFounderEmail({
       founderName: selectedFounder.name, founderRole: selectedFounder.role, founderProfileUrl: selectedFounder.profileUrl,
-      companyDomain: domain, finder: process.env.HUNTER_API_KEY ? new HunterEmailFinder(process.env.HUNTER_API_KEY) : undefined,
+      companyDomain: domain, documents, finders,
     }) : null;
     return Response.json({
       companyUrl: resolvedUrl.origin, companyName: companyNameFromContent(companyContent, resolvedUrl), domain,
-      founders, selectedFounder, contact, providerConfigured: Boolean(process.env.HUNTER_API_KEY),
+      founders, selectedFounder, contact, providerConfigured: true, externalProviderConfigured: finders.length > 0,
       sourceUrl: suppliedUrl.toString(), researchedAt: new Date().toISOString(),
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {

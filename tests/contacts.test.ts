@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { generateFounderEmailCandidates, founderNameParts, patternForEmail } from "../lib/contacts/candidates.ts";
 import { HunterEmailFinder } from "../lib/contacts/hunter.ts";
+import { resolveFounderEmail } from "../lib/contacts/evidence-engine.ts";
 import { InMemoryFounderContactRepository } from "../lib/contacts/memory-repository.ts";
 import { canUseFounderContact, discoverFounderContacts } from "../lib/contacts/service.ts";
 import { findOneFounderEmail } from "../lib/contacts/single-link.ts";
@@ -23,15 +24,17 @@ test("generates deterministic deduplicated company-domain combinations", () => {
   assert.throws(() => generateFounderEmailCandidates("Ada", "example.com"), /full first and last name/);
 });
 
-test("single-link founder lookup stops at the first safely deliverable candidate", async () => {
+const mailReady = async () => ({ status: "present" as const, exchanges: ["mx.example.com"], checkedAt: "2026-08-02T00:00:00.000Z" });
+
+test("single-link founder lookup aggregates checks and selects the earliest safely deliverable candidate", async () => {
   const attempts: string[] = [];
-  const contact = await findOneFounderEmail({ founderName: "Ada Lovelace", companyDomain: "example.com", finder: {
+  const contact = await findOneFounderEmail({ founderName: "Ada Lovelace", companyDomain: "example.com", inspectDomain: mailReady, finder: {
     id: "hunter", async find() { return null; }, async verify(email) {
       attempts.push(email);
       return { email, status: email === "ada.lovelace@example.com" ? "valid" : "invalid", score: email === "ada.lovelace@example.com" ? 98 : 0, sources: [], verifiedAt: "2026-08-02T00:00:00.000Z" };
     },
   } });
-  assert.deepEqual(attempts, ["ada@example.com", "ada.lovelace@example.com"]);
+  assert.deepEqual(attempts, ["ada@example.com", "ada.lovelace@example.com", "adalovelace@example.com", "alovelace@example.com", "a.lovelace@example.com"]);
   assert.equal(contact.email, "ada.lovelace@example.com");
   assert.equal(contact.verificationStatus, "valid");
 });
@@ -61,10 +64,51 @@ test("contact discovery requires founder evidence and only safe verification is 
   assert.equal(inferred[0].verificationStatus, "unverified");
   assert.equal(canUseFounderContact(inferred[0]), false);
   const attempts: string[] = [];
-  const verified = await discoverFounderContacts({ startupId: startup.id, discoveryRepository, intelligenceRepository, contactRepository, finder: { id: "hunter", async find() { return null; }, async verify(email) { attempts.push(email); return { email, status: email === "ada.lovelace@example.com" ? "valid" : "invalid", score: email === "ada.lovelace@example.com" ? 98 : 0, sources: [], verifiedAt: "2026-08-02T00:00:00.000Z" }; } } });
+  const verified = await discoverFounderContacts({ startupId: startup.id, discoveryRepository, intelligenceRepository, contactRepository, inspectDomain: mailReady, finder: { id: "hunter", async find() { return null; }, async verify(email) { attempts.push(email); return { email, status: email === "ada.lovelace@example.com" ? "valid" : "invalid", score: email === "ada.lovelace@example.com" ? 98 : 0, sources: [], verifiedAt: "2026-08-02T00:00:00.000Z" }; } } });
   assert.equal(canUseFounderContact(verified[0]), true);
   assert.equal(verified[0].email, "ada.lovelace@example.com");
   assert.deepEqual(attempts, ["ada@example.com", "ada.lovelace@example.com", "adalovelace@example.com", "alovelace@example.com", "a.lovelace@example.com"]);
   assert.deepEqual(verified[0].candidates.slice(0, 2).map((candidate) => candidate.verificationStatus), ["invalid", "valid"]);
   assert.equal((await contactRepository.list(startup.id)).length, 1);
+});
+
+test("native evidence verifies an exact publicly published company address without Hunter", async () => {
+  const result = await resolveFounderEmail({
+    founderName: "Ada Lovelace", companyDomain: "example.com", inspectDomain: mailReady,
+    documents: [{ sourceUrl: "https://example.com/team", content: "Ada Lovelace — Founder — ada.lovelace@example.com", observedAt: "2026-08-02T00:00:00.000Z" }],
+  });
+  assert.equal(result.result?.email, "ada.lovelace@example.com");
+  assert.equal(result.result?.status, "valid");
+  assert.equal(result.provider, "public-web");
+  assert.ok(result.candidates[0].evidence.some((item) => item.kind === "public_exact") || result.candidates[1].evidence.some((item) => item.kind === "public_exact"));
+});
+
+test("patterns and MX records rank candidates but never unlock sending without mailbox evidence", async () => {
+  const result = await resolveFounderEmail({
+    founderName: "Ada Lovelace", companyDomain: "example.com", inspectDomain: mailReady,
+    documents: [{ sourceUrl: "https://example.com/team", content: "Grace Hopper — CTO — grace.hopper@example.com", observedAt: "2026-08-02T00:00:00.000Z" }],
+  });
+  assert.equal(result.result, null);
+  assert.equal(result.candidates[0].pattern, "first.last");
+  assert.equal(result.candidates[0].verificationStatus, "unverified");
+  assert.ok(result.candidates[0].confidence > 0);
+});
+
+test("missing MX blocks even an exact public address", async () => {
+  const result = await resolveFounderEmail({
+    founderName: "Ada Lovelace", companyDomain: "example.com",
+    inspectDomain: async () => ({ status: "missing", exchanges: [], checkedAt: "2026-08-02T00:00:00.000Z" }),
+    documents: [{ sourceUrl: "https://example.com/team", content: "ada.lovelace@example.com", observedAt: "2026-08-02T00:00:00.000Z" }],
+  });
+  assert.equal(result.result, null);
+  assert.equal(result.candidates.find((item) => item.email === "ada.lovelace@example.com")?.verificationStatus, "invalid");
+});
+
+test("third-party pages cannot verify a mailbox even when they print an exact candidate", async () => {
+  const result = await resolveFounderEmail({
+    founderName: "Ada Lovelace", companyDomain: "example.com", inspectDomain: mailReady,
+    documents: [{ sourceUrl: "https://directory.test/ada", content: "ada.lovelace@example.com", observedAt: "2026-08-02T00:00:00.000Z" }],
+  });
+  assert.equal(result.result, null);
+  assert.equal(result.candidates.find((item) => item.email === "ada.lovelace@example.com")?.verificationStatus, "unverified");
 });

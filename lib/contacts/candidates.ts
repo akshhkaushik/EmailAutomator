@@ -26,7 +26,10 @@ export function generateFounderEmailCandidates(fullName: string, domain: string)
     ["last", last],
   ];
   return [...new Map(patterns.map(([pattern, local]) => [`${local}@${host}`, pattern])).entries()]
-    .map(([email, pattern], index) => ({ email, pattern, rank: index + 1, verificationStatus: "unverified" as const, confidence: 0, verifiedAt: null }));
+    .map(([email, pattern], index) => ({
+      email, pattern, rank: index + 1, verificationStatus: "unverified" as const,
+      confidence: 0, verifiedAt: null, evidence: [], riskFlags: [],
+    }));
 }
 
 export function patternForEmail(email: string, candidates: EmailCandidate[]) {
