@@ -30,6 +30,10 @@ export function enforceStartupResearchRateLimit(email: string) {
   return enforceRateLimit("intelligence", email, 5, "Startup research is limited to five runs per minute. Try again shortly.");
 }
 
+export function enforceFounderContactRateLimit(email: string) {
+  return enforceRateLimit("founder-contact", email, 5, "Founder email discovery is limited to five runs per minute. Try again shortly.");
+}
+
 export function enforceDraftRateLimit(email: string) {
   return enforceRateLimit("draft", email, 10, "Draft generation is limited to ten runs per minute. Try again shortly.");
 }

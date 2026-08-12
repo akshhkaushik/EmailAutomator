@@ -8,6 +8,8 @@ import type { OutreachRepository } from "./repository.ts";
 import type { OutreachContentGenerator, OutreachDraftAudit, OutreachMode } from "./types.ts";
 import { detectEditedCompanyClaims, validateOutreachClaims } from "./validation.ts";
 import { structuredLog } from "../observability.ts";
+import type { FounderContactRepository } from "../contacts/repository.ts";
+import { canUseFounderContact } from "../contacts/service.ts";
 
 export async function createIntelligenceOutreach(input: {
   startupId: string;
@@ -15,11 +17,13 @@ export async function createIntelligenceOutreach(input: {
   mode: OutreachMode;
   recipientEmail: string;
   recipientName: string;
+  recipientContactId?: string | null;
   discoveryRepository: DiscoveryRepository;
   intelligenceRepository: IntelligenceRepository;
   contributionRepository: ContributionRepository;
   buildRepository: BuildRepository;
   outreachRepository: OutreachRepository;
+  contactRepository?: FounderContactRepository;
   generator?: OutreachContentGenerator;
 }) {
   const startedAt = Date.now();
@@ -34,6 +38,11 @@ export async function createIntelligenceOutreach(input: {
   if (!startup) throw new Error("Startup was not found.");
   if (!intelligence) throw new Error("Startup intelligence was not found.");
   if (!opportunity) throw new Error("Contribution opportunity was not found.");
+  if (input.recipientContactId) {
+    if (!input.contactRepository) throw new Error("Founder contact storage is required for discovered recipients.");
+    const contact = await input.contactRepository.get(input.startupId, input.recipientContactId);
+    if (!contact || !canUseFounderContact(contact) || contact.email !== input.recipientEmail) throw new Error("Select a valid verified founder email before drafting outreach.");
+  }
   const build = await input.buildRepository.getByOpportunity(input.startupId, input.opportunityId);
   const context = buildOutreachContext({ startup, intelligence, evidence, opportunity, mode: input.mode, build, history });
   const generator = input.generator || (process.env.GEMINI_API_KEY ? new GeminiOutreachGenerator(process.env.GEMINI_API_KEY) : new DeterministicOutreachGenerator());
@@ -44,7 +53,7 @@ export async function createIntelligenceOutreach(input: {
   const validation = validateOutreachClaims(claims, evidence);
   const timestamp = new Date().toISOString();
   const draft: OutreachDraftAudit = {
-    id: crypto.randomUUID(), startupId: startup.id, opportunityId: opportunity.id, buildSpecId: build?.id || null,
+    id: crypto.randomUUID(), startupId: startup.id, opportunityId: opportunity.id, buildSpecId: build?.id || null, recipientContactId: input.recipientContactId || null,
     recipientEmail: input.recipientEmail, recipientName: input.recipientName, mode: input.mode,
     subject: generated.subject, body: generated.body, detectedClaims: claims,
     evidenceIds: [...new Set(claims.flatMap((claim) => claim.evidenceIds))],

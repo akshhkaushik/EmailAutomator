@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Accelerator, Cohort, DiscoveryResult, Startup } from "@/lib/discovery/types";
+import type { AcceleratorCatalogEntry } from "@/lib/discovery/accelerator-catalog";
 import type { OpportunityScorecard, OpportunityTier } from "@/lib/scoring/types";
 
 type Props = {
@@ -27,6 +28,7 @@ async function apiRequest<T>(path: string, token: string, init?: RequestInit) {
 
 export default function DiscoveryView({ gmailToken, onConnect, onTokenExpired }: Props) {
   const [accelerators, setAccelerators] = useState<Accelerator[]>([]);
+  const [acceleratorCatalog, setAcceleratorCatalog] = useState<AcceleratorCatalogEntry[]>([]);
   const [cohorts, setCohorts] = useState<Cohort[]>([]);
   const [startups, setStartups] = useState<Startup[]>([]);
   const [scorecards, setScorecards] = useState<Record<string, OpportunityScorecard | null>>({});
@@ -69,11 +71,12 @@ export default function DiscoveryView({ gmailToken, onConnect, onTokenExpired }:
       if (filterAccelerator) query.set("acceleratorId", filterAccelerator);
       if (filterCohort) query.set("cohortId", filterCohort);
       const [acceleratorData, cohortData, opportunityData] = await Promise.all([
-        apiRequest<{ accelerators: Accelerator[] }>("/api/accelerators", gmailToken),
+        apiRequest<{ accelerators: Accelerator[]; catalog: AcceleratorCatalogEntry[] }>("/api/accelerators", gmailToken),
         apiRequest<{ cohorts: Cohort[] }>("/api/cohorts", gmailToken),
         apiRequest<{ opportunities: Array<{ startup: Startup; scorecard: OpportunityScorecard | null }> }>(`/api/opportunities${query.size ? `?${query}` : ""}`, gmailToken),
       ]);
       setAccelerators(acceleratorData.accelerators);
+      setAcceleratorCatalog(acceleratorData.catalog);
       setCohorts(cohortData.cohorts);
       setStartups(opportunityData.opportunities.map((item) => item.startup));
       setScorecards(Object.fromEntries(opportunityData.opportunities.map((item) => [item.startup.id, item.scorecard])));
@@ -134,6 +137,12 @@ export default function DiscoveryView({ gmailToken, onConnect, onTokenExpired }:
     setCohortForm((current) => ({ ...current, acceleratorId, portfolioUrl: accelerator?.portfolioUrl || current.portfolioUrl }));
   }
 
+  function chooseCatalogAccelerator(id: string) {
+    const selected = acceleratorCatalog.find((item) => item.id === id);
+    if (!selected) return;
+    setAcceleratorForm((current) => ({ ...current, name: selected.name, description: `Tier ${selected.tier} · ${selected.focus.join(", ")}` }));
+  }
+
   if (!gmailToken) {
     return <div className="page-wrap discovery-page"><section className="panel analytics-empty"><span>◎</span><h2>Connect Gmail to manage discovery</h2><p>Your verified Google identity protects accelerator, cohort, and startup records. Discovery never sends email.</p><button className="primary-button compact" type="button" onClick={onConnect}>Connect Gmail</button></section></div>;
   }
@@ -147,6 +156,7 @@ export default function DiscoveryView({ gmailToken, onConnect, onTokenExpired }:
     <section className="discovery-form-grid">
       <form className="panel discovery-form" onSubmit={addAccelerator}>
         <div className="panel-heading"><div><span className="step-number">1</span><h2>Add accelerator</h2></div><span>Public URLs only</span></div>
+        <label>Curated accelerator<select defaultValue="" onChange={(event) => chooseCatalogAccelerator(event.target.value)}><option value="">Choose from Aksh&apos;s list</option>{([1, 2, 3, 4] as const).map((tier) => <optgroup label={`Tier ${tier}`} key={tier}>{acceleratorCatalog.filter((item) => item.tier === tier).map((item) => <option value={item.id} key={item.id}>{item.name}{item.aliases.length ? ` (${item.aliases.join(", ")})` : ""}</option>)}</optgroup>)}</select></label>
         <label>Name *<input required value={acceleratorForm.name} onChange={(event) => setAcceleratorForm({ ...acceleratorForm, name: event.target.value })} placeholder="Example Accelerator" /></label>
         <label>Website *<input required type="url" value={acceleratorForm.website} onChange={(event) => setAcceleratorForm({ ...acceleratorForm, website: event.target.value })} placeholder="https://accelerator.example" /></label>
         <label>Portfolio URL *<input required type="url" value={acceleratorForm.portfolioUrl} onChange={(event) => setAcceleratorForm({ ...acceleratorForm, portfolioUrl: event.target.value })} placeholder="https://accelerator.example/portfolio" /></label>

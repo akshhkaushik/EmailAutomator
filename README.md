@@ -42,7 +42,7 @@ The primary workflow is:
 ```text
 Accelerator → Cohort → Startup → Research Sources → EvidenceLedger
 → Startup Intelligence → Opportunity Score → Contribution Opportunity
-→ BuildSpec/Proof → Evidence-validated Outreach → Human Review → Gmail
+→ Founder Contact Discovery → BuildSpec/Proof → Evidence-validated Outreach → Human Review → Gmail
 → Outcome → Follow-up Recommendation → Learning Analytics
 ```
 
@@ -87,6 +87,10 @@ Connect **Upstash for Redis** from the Vercel Marketplace. Vercel injects the RE
 
 Redis stores accelerators, cohorts, startups, evidence, research runs, intelligence snapshots, opportunities, BuildSpecs, outreach audits, outcomes, tracking records, rate-limit counters, operation locks, and send-idempotency records. Production requires Redis even though selected legacy paths have process-local development fallbacks.
 
+### Founder work-email discovery
+
+After research identifies a founder from public evidence, the app checks a small, transparent sequence beginning with `first@company-domain`, followed by `first.last`, `firstlast`, `flast`, and other lower-probability variants. Those combinations are labeled as inferred candidates and are never treated as facts. If `HUNTER_API_KEY` is configured, the server verifies each candidate in order and stores its status, confidence, and public source URLs. It stops at the first `valid` result, or an `accept_all` result with confidence of at least 85. Unknown, invalid, unresolved, and unverified candidates remain disabled. Gmail still requires explicit review and a separate send action.
+
 ## Environment variables
 
 | Variable | Required | Visibility | Purpose |
@@ -103,6 +107,7 @@ Redis stores accelerators, cohorts, startups, evidence, research runs, intellige
 | `OPENAI_MODEL` | Optional fallback | Server only | Direct OpenAI model; defaults to `gpt-5.4` |
 | `ENABLE_PAID_AI_FALLBACKS` | Optional | Server only | Set to `true` only if AI Gateway/OpenAI billing fallbacks are intentionally enabled; defaults to disabled |
 | `JINA_API_KEY` | Optional | Server only | Higher limits for blocked-site recovery through Jina Reader; anonymous basic usage works without it |
+| `HUNTER_API_KEY` | Optional | Secret, server only | Finds and verifies evidence-backed founders' professional company-domain email addresses; candidate guesses remain disabled without verification |
 | `UPSTASH_REDIS_REST_URL` | Required in production | Secret, server only | Durable workflow, analytics, lock, and idempotency storage URL |
 | `UPSTASH_REDIS_REST_TOKEN` | Required in production | Secret, server only | Durable workflow, analytics, lock, and idempotency storage token |
 
@@ -131,7 +136,7 @@ Tests use fixture HTML, in-memory repositories, injected fetch implementations, 
 
 ## Startup and opportunity workflow
 
-Add an accelerator and optional cohort, run bounded portfolio discovery, then research a startup. Evidence remains source-attributed and unknown fields stay unknown. Deterministic scoring ranks the startup for Aksh, and the contribution engine only proposes small projects supported by both startup evidence and the formal Aksh project catalog. S-tier approved opportunities can become BuildSpecs; completed proof must be attached by the user.
+Add accelerators such as YC, Accel, or Neo and optional cohorts, run bounded portfolio discovery, then research the startups that meet the visible score/tier constraints. Evidence remains source-attributed and unknown fields stay unknown. Deterministic scoring ranks the startup for Aksh, and the contribution engine only proposes small projects supported by both startup evidence and the formal Aksh project catalog. Founder email discovery runs only after founder and company-domain evidence exists. S-tier approved opportunities can become BuildSpecs; completed proof must be attached by the user.
 
 ## Outreach workflow
 

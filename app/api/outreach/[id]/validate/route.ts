@@ -21,6 +21,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const subject = typeof (input as Record<string, unknown>).subject === "string" ? String((input as Record<string, unknown>).subject).trim() : "";
     const recipientEmail = typeof (input as Record<string, unknown>).recipientEmail === "string" ? String((input as Record<string, unknown>).recipientEmail).trim().toLowerCase() : "";
     if (!body || !subject || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) throw new ValidationError("Recipient, subject, and body are required for validation.");
+    if (draft.recipientContactId && recipientEmail !== draft.recipientEmail) throw new ValidationError("A discovered founder recipient cannot be changed without selecting and verifying a new contact.");
     const startup = await getDiscoveryRepository().getStartup(draft.startupId);
     if (!startup) throw new Error("Startup was not found.");
     const evidence = await getIntelligenceRepository().listEvidence(draft.startupId);

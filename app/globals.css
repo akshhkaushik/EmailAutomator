@@ -344,6 +344,23 @@ textarea { resize: vertical; }
 .outreach-review > header span { color: var(--quiet); font-size: 8px; }
 .outreach-review > footer { display: flex; justify-content: end; gap: 8px; margin: 12px 14px 0; }
 .workflow-section > small { display: block; margin-top: 10px; color: var(--quiet); font-size: 8px; }
+.contact-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+.contact-card { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.contact-card header { display: flex; justify-content: space-between; gap: 12px; }
+.contact-card h3, .contact-card p { margin: 0; }
+.contact-card h3 { font-size: 11px; }
+.contact-card header p, .contact-card > p { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.contact-card .contact-email { margin: 13px 0 4px; color: var(--ink); font-size: 11px; font-weight: 800; overflow-wrap: anywhere; }
+.contact-status { height: fit-content; padding: 4px 6px; border-radius: 5px; background: var(--soft); color: var(--muted); font-size: 7px; font-weight: 900; text-transform: uppercase; }
+.contact-status.status-valid { background: var(--accent-soft); color: var(--accent); }
+.contact-status.status-invalid { background: #f9e9e6; color: #8a473a; }
+.contact-status.status-accept_all { background: #f5efdf; color: var(--warning); }
+.contact-card details { margin: 12px 0; color: var(--muted); font-size: 8px; }
+.contact-card details summary { color: var(--accent); cursor: pointer; font-weight: 800; }
+.contact-card details ol { padding-left: 18px; line-height: 1.6; overflow-wrap: anywhere; }
+.contact-card details a { display: block; margin-top: 4px; color: var(--accent); }
+.contact-card > button { width: 100%; border: 1px solid var(--line-dark); border-radius: 6px; padding: 8px; background: #fff; color: var(--accent); font-size: 8px; font-weight: 800; cursor: pointer; }
+.contact-card > button:disabled { color: var(--quiet); cursor: not-allowed; }
 .intelligence-grid { display: grid; grid-template-columns: 1fr 1fr; }
 .intelligence-grid > section { min-width: 0; padding: 22px 24px; border-bottom: 1px solid var(--line); }
 .intelligence-grid > section:nth-child(odd) { border-right: 1px solid var(--line); }

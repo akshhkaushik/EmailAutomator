@@ -29,6 +29,7 @@ export type OutreachDraftAudit = {
   startupId: string;
   opportunityId: string;
   buildSpecId: string | null;
+  recipientContactId: string | null;
   recipientEmail: string;
   recipientName: string;
   mode: OutreachMode;
