@@ -3,8 +3,7 @@
 import Script from "next/script";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown";
-import DiscoveryView from "./discovery-view";
-import type { FollowUpRecommendation, LearningAnalytics, OutreachOutcome } from "@/lib/learning/types";
+import type { FounderContact } from "@/lib/contacts/types";
 
 type Draft = {
   companyUrl: string;
@@ -31,6 +30,7 @@ type Profile = {
 };
 
 type OpenEvent = { observedAt: string; userAgent: string };
+type ClickEvent = { observedAt: string; userAgent: string; linkId: string; url: string };
 type TrackedEmail = {
   id: string;
   recipientEmail: string;
@@ -46,16 +46,25 @@ type TrackedEmail = {
   lastOpenedAt: string | null;
   openCount: number;
   opens: OpenEvent[];
+  clickCount: number;
+  clicks: ClickEvent[];
+};
+type DirectResearch = {
+  companyUrl: string;
+  companyName: string;
+  domain: string;
+  founders: Array<{ name: string; role: string; profileUrl: string | null; source: string }>;
+  selectedFounder: { name: string; role: string; profileUrl: string | null; source: string } | null;
+  contact: FounderContact | null;
+  providerConfigured: boolean;
+  sourceUrl: string;
+  researchedAt: string;
 };
 type Analytics = {
   configured: boolean;
   generatedAt: string;
-  stats: { sent: number; selfTests: number; opened: number; unopened: number; openRate: number; totalOpenEvents: number };
+  stats: { sent: number; selfTests: number; opened: number; unopened: number; openRate: number; totalOpenEvents: number; totalLinkClicks: number };
   emails: TrackedEmail[];
-  outcomes: OutreachOutcome[];
-  followUps: FollowUpRecommendation[];
-  learning: LearningAnalytics;
-  dashboard: { startupsResearched: number; qualifiedStartups: number; outreachSent: number; replyRate: number; positiveReplyRate: number; interviews: number; opportunitiesBuilt: number; opportunitiesConverted: number };
 };
 
 const initialProfile: Profile = {
@@ -65,7 +74,7 @@ const initialProfile: Profile = {
   portfolio: "https://github.com/akshhkaushik",
   linkedin: "",
   projects: [],
-  template: "Keep the message humble and personal. Preserve any unique context I add here, propose one small feature I could genuinely help prototype, and ask politely whether I might contribute to and learn from the team. Mention that my résumé is attached.",
+  template: "Keep the message humble and personal. Preserve any unique context I add here, propose one small feature I could genuinely help prototype, and ask politely whether I might contribute to and learn from the team.",
 };
 
 const PROFILE_STORAGE_KEY = "signal-profile";
@@ -142,12 +151,11 @@ function formatTime(value: string | null) {
 }
 
 export default function Home() {
-  const [view, setView] = useState<"compose" | "discovery" | "analytics">("discovery");
+  const [view, setView] = useState<"compose" | "analytics">("compose");
   const [profile, setProfile] = useState<Profile>(initialProfile);
   const [companyUrl, setCompanyUrl] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [recipientName, setRecipientName] = useState("");
-  const [resume, setResume] = useState<File | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -161,6 +169,7 @@ export default function Home() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState("");
+  const [directResearch, setDirectResearch] = useState<DirectResearch | null>(null);
   const tokenClientRef = useRef<{ requestAccessToken: (overrideConfig?: { prompt?: string }) => void } | null>(null);
   const tokenRefreshTimerRef = useRef<number | null>(null);
   const silentReconnectRef = useRef(false);
@@ -168,7 +177,7 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const requestedView = new URLSearchParams(window.location.search).get("view");
-      if (requestedView === "compose" || requestedView === "analytics" || requestedView === "discovery") setView(requestedView);
+      if (requestedView === "analytics") setView("analytics");
       const saved = localStorage.getItem(PROFILE_STORAGE_KEY);
       if (saved) {
         try {
@@ -285,10 +294,6 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [view, gmailToken, loadAnalytics]);
 
-  function updateProfile(field: Exclude<keyof Profile, "projects">, value: string) {
-    setProfile((current) => ({ ...current, [field]: value }));
-  }
-
   function connectGmail() {
     if (!googleClientId) return setNotice("Gmail is not configured yet.");
     if (!tokenClientRef.current) return setNotice("Google sign-in is still loading. Try again in a moment.");
@@ -309,19 +314,33 @@ export default function Home() {
   async function generateDraft(event: FormEvent) {
     event.preventDefault();
     if (!gmailToken) { connectGmail(); return; }
-    setNotice(""); setStatus("researching"); setDraft(null);
+    setNotice(""); setStatus("researching"); setDraft(null); setDirectResearch(null); setRecipientEmail(""); setRecipientName("");
     try {
+      const researchResponse = await fetch("/api/direct-research", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${gmailToken}` },
+        body: JSON.stringify({ companyUrl }), signal: AbortSignal.timeout(30_000),
+      });
+      const researchResult = await researchResponse.json() as DirectResearch & { error?: string };
+      if (!researchResponse.ok) throw new Error(researchResult.error || "Could not research the startup or identify a founder.");
+      setDirectResearch(researchResult);
+      setRecipientName(researchResult.selectedFounder?.name || "");
+      if (researchResult.contact?.email) {
+        setRecipientEmail(researchResult.contact.email);
+      }
+      const safeRecipient = researchResult.contact?.email || "research-only@placeholder.invalid";
       const response = await fetch("/api/draft", {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${gmailToken}` },
-        body: JSON.stringify({ companyUrl, recipientEmail, recipientName, profile }),
+        body: JSON.stringify({ companyUrl: researchResult.companyUrl, recipientEmail: safeRecipient, recipientName: researchResult.selectedFounder?.name || "Founder", profile }),
         signal: AbortSignal.timeout(55_000),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not create the draft.");
       setDraft(result); setSubject(result.subject); setBody(result.body); setStatus("ready");
-      setNotice(result.source === "local-research"
-        ? "Draft ready using direct website research. The free AI providers were busy, so no paid request was required."
-        : "Draft ready. Read it once before sending.");
+      setNotice(researchResult.contact?.email
+        ? `Draft ready for ${researchResult.contact.founderName}. The address passed the configured deliverability check.`
+        : researchResult.selectedFounder
+          ? `Draft ready for ${researchResult.selectedFounder.name}, but no safely verified email was found. Review the ordered candidates and enter only a confirmed address.`
+          : "The startup was researched, but no founder was supported by the public page. The draft is ready without a recipient; verify a founder before sending.");
     } catch (error) {
       setStatus("idle");
       const timedOut = error instanceof DOMException && error.name === "TimeoutError";
@@ -333,7 +352,8 @@ export default function Home() {
 
   async function sendEmail() {
     if (!gmailToken) return connectGmail();
-    if (!resume) return setNotice("Attach your résumé before sending.");
+    const contactIsSafe = Boolean(directResearch?.contact?.email) && (directResearch?.contact?.verificationStatus === "valid" || (directResearch?.contact?.verificationStatus === "accept_all" && (directResearch?.contact?.confidence || 0) >= 85));
+    if (!contactIsSafe || recipientEmail !== directResearch?.contact?.email) return setNotice("A safely verified founder email is required before sending.");
     setStatus("sending"); setNotice("");
     try {
       const response = await fetch("/api/send", {
@@ -343,7 +363,6 @@ export default function Home() {
           to: recipientEmail, recipientName, subject, body, trackOpens,
           companyName: draft?.companyName || companyHost,
           companyUrl: draft?.companyUrl || companyUrl,
-          resume: { name: resume.name, type: resume.type || "application/pdf", base64: await fileToBase64(resume) },
         }),
       });
       const result = await response.json();
@@ -363,12 +382,12 @@ export default function Home() {
       <Script id="google-identity-script" src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onReady={() => setGoogleScriptReady(true)} />
 
       <header className="topbar">
-        <button className="brand" type="button" onClick={() => setView("discovery")} aria-label="Startup finder home">
+        <button className="brand" type="button" onClick={() => setView("compose")} aria-label="Startup outreach home">
           <span className="brand-mark">A</span><span>Aksh Outreach</span>
         </button>
         <nav className="view-nav" aria-label="Workspace views">
-          <button className={view === "discovery" ? "active" : ""} aria-current={view === "discovery" ? "page" : undefined} onClick={() => setView("discovery")} type="button">Explore</button>
-          <button className={view === "analytics" ? "active" : ""} aria-current={view === "analytics" ? "page" : undefined} onClick={() => setView("analytics")} type="button">Analytics</button>
+          <button className={view === "compose" ? "active" : ""} aria-current={view === "compose" ? "page" : undefined} onClick={() => setView("compose")} type="button">New email</button>
+          <button className={view === "analytics" ? "active" : ""} aria-current={view === "analytics" ? "page" : undefined} onClick={() => setView("analytics")} type="button">Tracking</button>
         </nav>
         <button className={`connection ${gmailToken ? "connected" : ""}`} title={gmailToken ? "Connected on this browser · click to disconnect" : "Connect Gmail"} onClick={gmailToken ? disconnectGmail : connectGmail} type="button">
           <span className="connection-dot" />{gmailToken ? "Gmail connected" : "Connect Gmail"}
@@ -378,27 +397,19 @@ export default function Home() {
       {view === "compose" ? (
         <div className="page-wrap">
           <header className="page-heading">
-            <div><p className="kicker">New outreach</p><h1>Send one thoughtful email.</h1></div>
-            <p>Research the company, shape a useful contribution, and review every word before it leaves your inbox.</p>
+            <div><p className="kicker">One focused workflow</p><h1>Paste a startup link.</h1></div>
+            <p>We identify a founder, check likely company-email patterns, research the startup, draft one email, and wait for your approval before Gmail sends it.</p>
           </header>
 
           <div className="compose-layout">
             <section className="compose-main">
               <form className="panel target-panel" onSubmit={generateDraft}>
-                <div className="panel-heading"><div><span className="step-number">1</span><h2>Recipient and company</h2></div><span>Required fields are marked</span></div>
+                <div className="panel-heading"><div><span className="step-number">1</span><h2>Startup link</h2></div><span>Nothing else required to research</span></div>
                 <div className="form-grid">
-                  <label>Recipient email *<input required type="email" value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} placeholder="founder@company.com" /></label>
-                  <label>Recipient name<input value={recipientName} onChange={(event) => setRecipientName(event.target.value)} placeholder="First name, if known" /></label>
-                  <label className="wide">Company website *<input required type="url" value={companyUrl} onChange={(event) => setCompanyUrl(event.target.value)} placeholder="https://company.com" /></label>
-                  <label className="wide">Résumé
-                    <div className={`file-field ${resume ? "ready" : ""}`}>
-                      <input type="file" accept=".pdf,.doc,.docx" onChange={(event) => setResume(event.target.files?.[0] || null)} />
-                      <span>{resume ? "✓" : "+"}</span><div><b>{resume?.name || "Attach your résumé"}</b><small>{resume ? `${(resume.size / 1024 / 1024).toFixed(2)} MB` : "PDF or DOCX, up to 8 MB"}</small></div>
-                    </div>
-                  </label>
+                  <label className="wide">Startup website or accelerator profile *<input required type="url" value={companyUrl} onChange={(event) => setCompanyUrl(event.target.value)} placeholder="https://startup.com" /></label>
                 </div>
                 <button className="primary-button" disabled={status === "researching"} type="submit">
-                  {status === "researching" ? <><span className="spinner" />Researching {companyHost}…</> : <>Research company and prepare email <span>→</span></>}
+                  {status === "researching" ? <><span className="spinner" />Finding founder and researching {companyHost}…</> : <>Find founder, research, and draft <span>→</span></>}
                 </button>
               </form>
 
@@ -406,6 +417,12 @@ export default function Home() {
 
               {draft && (
                 <div className="draft-stack">
+                  <section className="panel founder-result">
+                    <div className="panel-heading"><div><span className="step-number">2</span><h2>Founder and email</h2></div><span>{directResearch?.contact?.verificationStatus || "not verified"}</span></div>
+                    {directResearch?.selectedFounder ? <div className="founder-summary"><div><b>{directResearch.selectedFounder.name}</b><span>{directResearch.selectedFounder.role}</span><small>Source: {directResearch.selectedFounder.source}</small></div><div><b>{directResearch.contact?.email || "No verified address"}</b><span>{directResearch.contact ? `${directResearch.contact.confidence}% confidence · ${directResearch.contact.provider}` : "Founder found; email unresolved"}</span></div></div> : <p className="company-summary">No founder name was supported by the public page. Do not guess a person or recipient.</p>}
+                    {directResearch?.contact && !directResearch.contact.email && <details className="candidate-list"><summary>Inspect ordered email combinations</summary><ol>{directResearch.contact.candidates.map((candidate) => <li key={candidate.email}><b>#{candidate.rank} {candidate.pattern}</b><span>{candidate.email}</span><small>{candidate.verificationStatus}{candidate.confidence ? ` · ${candidate.confidence}%` : ""}</small></li>)}</ol></details>}
+                    <div className="form-grid founder-recipient-fields"><label>Recipient email<input readOnly type="email" value={recipientEmail} placeholder="No safely verified address" /></label><label>Recipient name<input readOnly value={recipientName} /></label></div>
+                  </section>
                   <section className="panel research-panel">
                     <div className="company-heading"><span>{draft.companyName.slice(0, 1)}</span><div><p className="kicker">Research notes</p><h2>{draft.companyName}</h2></div><a href={draft.companyUrl} target="_blank" rel="noreferrer">Open website ↗</a></div>
                     <p className="company-summary">{draft.companySummary}</p>
@@ -417,32 +434,23 @@ export default function Home() {
                   </section>
 
                   <section className="panel editor-panel">
-                    <div className="panel-heading"><div><span className="step-number">2</span><h2>Review and send</h2></div><span>Everything remains editable</span></div>
+                    <div className="panel-heading"><div><span className="step-number">3</span><h2>Review and send</h2></div><span>Everything remains editable</span></div>
                     <div className="address-row"><label>To<input value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} /></label></div>
                     <div className="address-row"><label>Subject<input value={subject} onChange={(event) => setSubject(event.target.value)} /></label></div>
                     <div className="email-preview" dangerouslySetInnerHTML={{ __html: markdownToHtml(body) }} />
                     <details className="source-editor"><summary>Edit message text</summary><textarea rows={18} aria-label="Message source" value={body} onChange={(event) => setBody(event.target.value)} /><p>Use **bold** and [linked text](https://example.com).</p></details>
                     <div className="send-options">
-                      <label className="tracking-control"><input type="checkbox" checked={trackOpens} onChange={(event) => setTrackOpens(event.target.checked)} /><span><b>Track opens</b><small>Adds a private one-pixel image. Automatically disabled when you send a test email to your own Gmail account.</small></span></label>
-                      <div className="attachment-note"><span>▣</span><div><b>{resume?.name || "Résumé not attached"}</b><small>{resume ? "Ready to attach" : "Required before sending"}</small></div></div>
+                      <label className="tracking-control"><input type="checkbox" checked={trackOpens} onChange={(event) => setTrackOpens(event.target.checked)} /><span><b>Track observed opens and link clicks</b><small>Open detection uses a pixel and can be blocked or proxied. Links are redirected through a click counter. Self-tests are excluded.</small></span></label>
+                      <div className="attachment-note"><span>✓</span><div><b>Explicit approval required</b><small>No autonomous sending and no unverified recipient addresses.</small></div></div>
                     </div>
-                    <footer className="send-footer"><p>The email is sent only when you press this button.</p><button className="send-button" type="button" disabled={status === "sending" || status === "sent"} onClick={sendEmail}>{status === "sending" ? "Sending…" : status === "sent" ? "Sent ✓" : gmailToken ? "Send email" : "Connect Gmail to send"}</button></footer>
+                    <footer className="send-footer"><p>No system can guarantee inbox placement. Keep the email truthful and personal; it sends only when you press this button.</p><button className="send-button" type="button" disabled={!directResearch?.contact?.email || status === "sending" || status === "sent"} onClick={sendEmail}>{status === "sending" ? "Sending…" : status === "sent" ? "Sent ✓" : gmailToken ? "Review complete · Send" : "Connect Gmail to send"}</button></footer>
                   </section>
                 </div>
               )}
             </section>
 
-            <aside className="context-panel panel">
-              <div className="context-heading"><div><p className="kicker">Your context</p><h2>What stays consistent</h2></div><span className="saved-mark">Saved</span></div>
-              <p className="context-copy">This is kept on this browser and used to shape each draft. It changes only when you edit it.</p>
-              <label>Core instructions<textarea rows={12} value={profile.template} onChange={(event) => updateProfile("template", event.target.value)} /></label>
-              <div className="fixed-work"><b>Always included</b><span>Introduction as a BITS Pilani student</span><span>CEO Voice Platform</span><span>Veritas</span><span>EvoComb</span><span>GLOB</span><span>Your fixed signature</span></div>
-              <details className="profile-details"><summary>Personal details</summary><label>Name<input value={profile.name} onChange={(event) => updateProfile("name", event.target.value)} /></label><label>Role<input value={profile.role} onChange={(event) => updateProfile("role", event.target.value)} /></label><label>Additional context<textarea rows={5} value={profile.context} onChange={(event) => updateProfile("context", event.target.value)} /></label></details>
-            </aside>
           </div>
         </div>
-      ) : view === "discovery" ? (
-        <DiscoveryView gmailToken={gmailToken} onConnect={connectGmail} onTokenExpired={() => { clearCachedGmailToken(); setGmailToken(""); }} />
       ) : (
         <AnalyticsView analytics={analytics} loading={analyticsLoading} error={analyticsError} gmailConnected={Boolean(gmailToken)} gmailToken={gmailToken} onConnect={connectGmail} onRefresh={loadAnalytics} />
       )}
@@ -453,37 +461,19 @@ export default function Home() {
 function AnalyticsView({ analytics, loading, error, gmailConnected, gmailToken, onConnect, onRefresh }: {
   analytics: Analytics | null; loading: boolean; error: string; gmailConnected: boolean; gmailToken: string; onConnect: () => void; onRefresh: () => void;
 }) {
-  async function classifyOutcome(id: string, replyClassification: string) {
-    const response = await fetch("/api/outcomes", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${gmailToken}` }, body: JSON.stringify({ id, replyClassification }) });
-    if (response.ok) onRefresh();
-  }
+  void gmailToken;
   return <div className="page-wrap analytics-page">
-    <header className="analytics-heading"><div><p className="kicker">Outreach analytics</p><h1>Know what happened after send.</h1><p>Open events are recorded to the second when the tracking image is requested.</p></div><button className="secondary-button" type="button" onClick={onRefresh} disabled={!gmailConnected || loading}>{loading ? "Refreshing…" : "Refresh data"}</button></header>
-    <div className="accuracy-note"><b>How to read this:</b> “Opened” means the tracking image was loaded. Gmail and Apple can proxy or pre-load images, while recipients who block images may read without creating an event. Emails sent to your own connected mailbox are treated as self-tests and excluded automatically.</div>
+    <header className="analytics-heading"><div><p className="kicker">Email tracking</p><h1>Observed opens and link clicks.</h1><p>See when the tracking image loaded and exactly which embedded links were requested.</p></div><button className="secondary-button" type="button" onClick={onRefresh} disabled={!gmailConnected || loading}>{loading ? "Refreshing…" : "Refresh"}</button></header>
+    <div className="accuracy-note"><b>Important:</b> “Open observed” means the tracking image loaded. Some clients proxy or pre-load images, while others block them. Therefore “no open observed” does not prove the email was unread. Link clicks are stronger signals, but security scanners can also visit links.</div>
     {!gmailConnected ? <section className="panel analytics-empty"><span>↗</span><h2>Connect Gmail to see your private analytics</h2><p>Your connected Google identity is used to ensure only you can see recipient and open data.</p><button className="primary-button compact" type="button" onClick={onConnect}>Connect Gmail</button></section>
     : error ? <section className="panel analytics-empty"><h2>Analytics could not load</h2><p>{error}</p><button className="secondary-button" type="button" onClick={onRefresh}>Try again</button></section>
     : <>
       <section className="metric-grid" aria-label="Email metrics">
         <div className="metric"><span>Sent</span><b>{analytics?.stats.sent ?? 0}</b><small>Excludes {analytics?.stats.selfTests ?? 0} self-test{analytics?.stats.selfTests === 1 ? "" : "s"}</small></div>
-        <div className="metric"><span>Opened</span><b>{analytics?.stats.opened ?? 0}</b><small>Unique emails</small></div>
-        <div className="metric"><span>Open rate</span><b>{analytics?.stats.openRate ?? 0}%</b><small>At least one observed load</small></div>
-        <div className="metric"><span>Open events</span><b>{analytics?.stats.totalOpenEvents ?? 0}</b><small>Including repeat loads</small></div>
+        <div className="metric"><span>Open observed</span><b>{analytics?.stats.opened ?? 0}</b><small>{analytics?.stats.openRate ?? 0}% of tracked messages</small></div>
+        <div className="metric"><span>Open loads</span><b>{analytics?.stats.totalOpenEvents ?? 0}</b><small>Including repeated/proxied loads</small></div>
+        <div className="metric"><span>Link clicks</span><b>{analytics?.stats.totalLinkClicks ?? 0}</b><small>All tracked-link requests</small></div>
       </section>
-      <section className="metric-grid" aria-label="Outcome metrics">
-        <div className="metric"><span>Startups researched</span><b>{analytics?.dashboard?.startupsResearched ?? 0}</b><small>Evidence-backed intelligence</small></div>
-        <div className="metric"><span>Qualified startups</span><b>{analytics?.dashboard?.qualifiedStartups ?? 0}</b><small>Score tier B or higher</small></div>
-        <div className="metric"><span>Outreach sent</span><b>{analytics?.dashboard?.outreachSent ?? 0}</b><small>Audited intelligence outreach</small></div>
-        <div className="metric"><span>Reply rate</span><b>{analytics?.dashboard?.replyRate ?? 0}%</b><small>n = {analytics?.learning?.totals.sent ?? 0}</small></div>
-      </section>
-      <section className="metric-grid" aria-label="Conversion metrics">
-        <div className="metric"><span>Positive reply rate</span><b>{analytics?.dashboard?.positiveReplyRate ?? 0}%</b><small>Interested, maybe, or referral</small></div>
-        <div className="metric"><span>Interviews</span><b>{analytics?.dashboard?.interviews ?? 0}</b><small>Manually recorded outcomes</small></div>
-        <div className="metric"><span>Opportunities built</span><b>{analytics?.dashboard?.opportunitiesBuilt ?? 0}</b><small>Completed BuildSpecs</small></div>
-        <div className="metric"><span>Opportunities converted</span><b>{analytics?.dashboard?.opportunitiesConverted ?? 0}</b><small>Positive built outreach</small></div>
-      </section>
-      <section className="panel activity-panel learning-panel"><div className="activity-heading"><div><h2>Follow-up recommendations</h2><p>Recommendations only—each must return to review before sending.</p></div><span>{analytics?.followUps?.length ?? 0} due</span></div>{!analytics?.followUps?.length ? <div className="table-empty"><p>No follow-ups are due.</p></div> : analytics.followUps.map((item) => <article key={item.outcomeId}><b>Day {item.cadenceDay} · follow-up {item.followUpNumber}</b><p>{item.reason} {item.suggestedAngle}</p><span>Approval required</span></article>)}</section>
-      <section className="panel activity-panel learning-panel outcomes-panel"><div className="activity-heading"><div><h2>Outcomes</h2><p>Classify replies manually; opens are not treated as replies.</p></div><span>{analytics?.outcomes?.length ?? 0} outreach records</span></div>{!analytics?.outcomes?.length ? <div className="table-empty"><p>No intelligence outreach has been sent yet.</p></div> : analytics.outcomes.map((item) => <article key={item.id}><b>{item.startupTier} tier · {item.outreachMode.replaceAll("_", " ")}</b><p>{item.contributionType} · sent {formatTime(item.sentAt)}</p><select aria-label="Reply classification" value={item.replyClassification || ""} onChange={(event) => void classifyOutcome(item.id, event.target.value)}><option value="">Pending</option><option value="interested">Interested</option><option value="maybe">Maybe</option><option value="referral">Referral</option><option value="wrong_person">Wrong person</option><option value="rejected">Rejected</option><option value="no_response">No response</option></select></article>)}</section>
-      <section className="panel activity-panel learning-panel"><div className="activity-heading"><div><h2>Learning signals</h2><p>Descriptive samples only; scoring weights never change automatically.</p></div></div>{!analytics?.learning?.suggestedAdjustments.length ? <div className="table-empty"><p>No adjustment suggestion has enough data yet.</p></div> : analytics.learning.suggestedAdjustments.map((item) => <article key={item.title}><b>{item.title}</b><p>{item.evidence}</p><span>n = {item.sampleSize} · human approval required</span></article>)}</section>
       <section className="panel activity-panel">
         <div className="activity-heading"><div><h2>Email activity</h2><p>{analytics?.generatedAt ? `Updated ${formatTime(analytics.generatedAt)}` : "Waiting for the first refresh"}</p></div><span>{analytics?.emails.length ?? 0} total</span></div>
         {!analytics || analytics.emails.length === 0 ? <div className="table-empty"><h3>No tracked emails yet</h3><p>Send an email with “Track opens” enabled and it will appear here.</p></div>
@@ -491,21 +481,11 @@ function AnalyticsView({ analytics, loading, error, gmailConnected, gmailToken, 
           <div className="email-primary"><span className={`status-mark ${!email.selfTest && email.firstOpenedAt ? "opened" : ""}`} /> <div><b>{email.recipientName || email.recipientEmail}</b><small>{email.recipientEmail}</small></div></div>
           <div className="email-subject"><b>{email.subject}</b><small>{email.companyName || hostFromUrl(email.companyUrl)}</small></div>
           <div className="email-time"><span>Sent</span><b>{formatTime(email.sentAt)}</b></div>
-          <div className="email-time"><span>{email.selfTest ? "Status" : email.firstOpenedAt ? "First observed open" : email.trackingEnabled ? "Status" : "Tracking"}</span><b>{email.selfTest ? "Self-test · excluded" : email.firstOpenedAt ? formatTime(email.firstOpenedAt) : email.trackingEnabled ? "Not observed" : "Off"}</b></div>
-          <div className="open-count"><b>{email.selfTest ? "—" : email.openCount}</b><span>{email.selfTest ? "ignored" : `load${email.openCount === 1 ? "" : "s"}`}</span></div>
-          {email.opens?.length > 0 && <details className="event-details"><summary>{email.selfTest ? "View ignored load history" : "View observed event history"}</summary><div>{email.opens.map((event, index) => <p key={`${event.observedAt}-${index}`}><b>{formatTime(event.observedAt)}</b><span>{event.userAgent}</span></p>)}</div></details>}
+          <div className="email-time"><span>{email.selfTest ? "Status" : email.firstOpenedAt ? "First observed open" : email.trackingEnabled ? "Open status" : "Tracking"}</span><b>{email.selfTest ? "Self-test · excluded" : email.firstOpenedAt ? formatTime(email.firstOpenedAt) : email.trackingEnabled ? "No open observed" : "Off"}</b></div>
+          <div className="open-count"><b>{email.selfTest ? "—" : email.openCount}</b><span>{email.selfTest ? "ignored" : `${email.clickCount || 0} click${(email.clickCount || 0) === 1 ? "" : "s"}`}</span></div>
+          {(email.opens?.length > 0 || email.clicks?.length > 0) && <details className="event-details"><summary>{email.selfTest ? "View ignored event history" : "View observed open and click history"}</summary><div>{email.opens.map((event, index) => <p key={`open-${event.observedAt}-${index}`}><b>Open · {formatTime(event.observedAt)}</b><span>{event.userAgent}</span></p>)}{(email.clicks || []).map((event, index) => <p key={`click-${event.observedAt}-${index}`}><b>Link click · {formatTime(event.observedAt)}</b><span>{event.url}</span></p>)}</div></details>}
         </article>)}</div>}
       </section>
     </>}
   </div>;
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (file.size > 8 * 1024 * 1024) return reject(new Error("Please choose a résumé smaller than 8 MB."));
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
-    reader.onerror = () => reject(new Error("Could not read the résumé."));
-    reader.readAsDataURL(file);
-  });
 }

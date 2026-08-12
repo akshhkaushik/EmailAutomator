@@ -1,4 +1,4 @@
-import { markdownToHtml, markdownToPlain } from "@/lib/markdown";
+import { extractHttpLinks, markdownToHtml, markdownToPlain } from "@/lib/markdown";
 import {
   createPendingTrackingRecord,
   markTrackingRecordSent,
@@ -69,12 +69,13 @@ export async function POST(request: Request) {
     const body = typeof payload.body === "string" ? payload.body.trim() : "";
     if (!body) throw new Error("The email message is empty.");
     if (body.length > 30_000) throw new Error("The email message is too long.");
-    const resumeName = cleanHeader(payload.resume?.name, "résumé filename").replace(/[^\w.\- ()]/g, "_");
-    const resumeType = cleanHeader(payload.resume?.type || "application/pdf", "résumé type");
+    const hasAttachment = Boolean(payload.resume?.name || payload.resume?.base64);
+    const resumeName = hasAttachment ? cleanHeader(payload.resume?.name, "résumé filename").replace(/[^\w.\- ()]/g, "_") : "";
+    const resumeType = hasAttachment ? cleanHeader(payload.resume?.type || "application/pdf", "résumé type") : "";
     const allowedResumeTypes = new Set(["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]);
-    if (!allowedResumeTypes.has(resumeType.toLowerCase())) throw new Error("Attach a PDF, DOC, or DOCX résumé.");
+    if (hasAttachment && !allowedResumeTypes.has(resumeType.toLowerCase())) throw new Error("Attach a PDF, DOC, or DOCX résumé.");
     const attachment = (payload.resume?.base64 || "").replace(/\s/g, "");
-    if (!attachment || attachment.length > 11_200_000 || attachment.length % 4 !== 0 || !/^[a-zA-Z0-9+/]*={0,2}$/.test(attachment)) throw new Error("Attach a valid résumé smaller than 8 MB.");
+    if (hasAttachment && (!attachment || attachment.length > 11_200_000 || attachment.length % 4 !== 0 || !/^[a-zA-Z0-9+/]*={0,2}$/.test(attachment))) throw new Error("Attach a valid résumé smaller than 8 MB.");
     let auditedDraft: OutreachDraftAudit | null = null;
     if (payload.outreachDraftId) {
       const outreachRepository = getOutreachRepository();
@@ -108,6 +109,9 @@ export async function POST(request: Request) {
     if (sendAttempt.state === "conflict") return Response.json({ error: "This idempotency key was already used for different email content." }, { status: 409 });
     if (sendAttempt.state === "processing") return Response.json({ error: "This email send is already in progress. Check Gmail Sent before retrying." }, { status: 409, headers: { "Retry-After": "30" } });
     trackingId = crypto.randomUUID();
+    const trackedLinks = trackOpens
+      ? extractHttpLinks(body).slice(0, 20).map((url, index) => ({ id: `link-${index + 1}`, url }))
+      : [];
     trackingPrepared = await createPendingTrackingRecord({
       id: trackingId,
       senderEmail: identity.email,
@@ -118,10 +122,16 @@ export async function POST(request: Request) {
       subject,
       trackingEnabled: trackOpens,
       selfTest,
+      trackedLinks,
     });
     const trackingPixel = trackOpens && trackingPrepared
       ? `<img src="${new URL(`/api/track/${trackingId}`, request.url).toString()}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;opacity:0" />`
       : "";
+    const trackedUrl = (url: string) => {
+      const tracked = trackedLinks.find((item) => item.url === url);
+      return tracked && trackingPrepared ? new URL(`/api/click/${trackingId}/${tracked.id}`, request.url).toString() : url;
+    };
+    const plainBody = trackedLinks.reduce((value, link) => value.replaceAll(link.url, trackedUrl(link.url)), markdownToPlain(body));
 
     const mixed = `signal-mixed-${crypto.randomUUID()}`;
     const alternative = `signal-alt-${crypto.randomUUID()}`;
@@ -130,6 +140,8 @@ export async function POST(request: Request) {
     const mime = [
       `To: ${to}`,
       `Subject: ${encodedSubject}`,
+      `Message-ID: <${crypto.randomUUID()}@aksh-outreach.local>`,
+      `Date: ${new Date().toUTCString()}`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/mixed; boundary="${mixed}"`,
       "",
@@ -140,23 +152,25 @@ export async function POST(request: Request) {
       'Content-Type: text/plain; charset="UTF-8"',
       "Content-Transfer-Encoding: base64",
       "",
-      utf8Base64(markdownToPlain(body)),
+      utf8Base64(plainBody),
       "",
       `--${alternative}`,
       'Content-Type: text/html; charset="UTF-8"',
       "Content-Transfer-Encoding: base64",
       "",
-      utf8Base64(`<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#17201b">${markdownToHtml(body)}${trackingPixel}</div>`),
+      utf8Base64(`<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#17201b">${markdownToHtml(body, trackedUrl)}${trackingPixel}</div>`),
       "",
       `--${alternative}--`,
       "",
-      `--${mixed}`,
-      `Content-Type: ${resumeType}; name="${encodedFilename}"`,
-      `Content-Disposition: attachment; filename="${encodedFilename}"`,
-      "Content-Transfer-Encoding: base64",
-      "",
-      attachment,
-      "",
+      ...(hasAttachment ? [
+        `--${mixed}`,
+        `Content-Type: ${resumeType}; name="${encodedFilename}"`,
+        `Content-Disposition: attachment; filename="${encodedFilename}"`,
+        "Content-Transfer-Encoding: base64",
+        "",
+        attachment,
+        "",
+      ] : []),
       `--${mixed}--`,
     ].join("\r\n");
 

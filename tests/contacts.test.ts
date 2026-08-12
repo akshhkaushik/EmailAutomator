@@ -4,6 +4,7 @@ import { generateFounderEmailCandidates, founderNameParts, patternForEmail } fro
 import { HunterEmailFinder } from "../lib/contacts/hunter.ts";
 import { InMemoryFounderContactRepository } from "../lib/contacts/memory-repository.ts";
 import { canUseFounderContact, discoverFounderContacts } from "../lib/contacts/service.ts";
+import { findOneFounderEmail } from "../lib/contacts/single-link.ts";
 import { InMemoryDiscoveryRepository } from "../lib/discovery/memory-repository.ts";
 import { InMemoryIntelligenceRepository } from "../lib/intelligence/memory-repository.ts";
 import { buildStartupIntelligence } from "../lib/intelligence/build-intelligence.ts";
@@ -20,6 +21,19 @@ test("generates deterministic deduplicated company-domain combinations", () => {
   assert.equal(new Set(candidates.map((item) => item.email)).size, candidates.length);
   assert.equal(patternForEmail("ada.lovelace@example.com", candidates), "first.last");
   assert.throws(() => generateFounderEmailCandidates("Ada", "example.com"), /full first and last name/);
+});
+
+test("single-link founder lookup stops at the first safely deliverable candidate", async () => {
+  const attempts: string[] = [];
+  const contact = await findOneFounderEmail({ founderName: "Ada Lovelace", companyDomain: "example.com", finder: {
+    id: "hunter", async find() { return null; }, async verify(email) {
+      attempts.push(email);
+      return { email, status: email === "ada.lovelace@example.com" ? "valid" : "invalid", score: email === "ada.lovelace@example.com" ? 98 : 0, sources: [], verifiedAt: "2026-08-02T00:00:00.000Z" };
+    },
+  } });
+  assert.deepEqual(attempts, ["ada@example.com", "ada.lovelace@example.com"]);
+  assert.equal(contact.email, "ada.lovelace@example.com");
+  assert.equal(contact.verificationStatus, "valid");
 });
 
 test("maps Hunter verification and provenance without exposing the API key", async () => {

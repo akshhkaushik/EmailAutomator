@@ -6,6 +6,15 @@ export type OpenEvent = {
   userAgent: string;
 };
 
+export type LinkClickEvent = {
+  observedAt: string;
+  userAgent: string;
+  linkId: string;
+  url: string;
+};
+
+export type TrackedLink = { id: string; url: string };
+
 export type TrackingRecord = {
   id: string;
   senderEmail: string;
@@ -23,6 +32,9 @@ export type TrackingRecord = {
   lastOpenedAt: string | null;
   openCount: number;
   opens: OpenEvent[];
+  clickCount: number;
+  clicks: LinkClickEvent[];
+  trackedLinks: TrackedLink[];
 };
 
 const RECORD_PREFIX = "signal:outreach:";
@@ -112,7 +124,7 @@ export function sameGoogleMailbox(first: string, second: string) {
   return Boolean(first && second && normalize(first) === normalize(second));
 }
 
-export async function createPendingTrackingRecord(input: Omit<TrackingRecord, "gmailMessageId" | "status" | "sentAt" | "firstOpenedAt" | "lastOpenedAt" | "openCount" | "opens">) {
+export async function createPendingTrackingRecord(input: Omit<TrackingRecord, "gmailMessageId" | "status" | "sentAt" | "firstOpenedAt" | "lastOpenedAt" | "openCount" | "opens" | "clickCount" | "clicks">) {
   const redis = redisFromEnvironment();
   if (!redis) return false;
   const record: TrackingRecord = {
@@ -124,9 +136,29 @@ export async function createPendingTrackingRecord(input: Omit<TrackingRecord, "g
     lastOpenedAt: null,
     openCount: 0,
     opens: [],
+    clickCount: 0,
+    clicks: [],
   };
   await redis.set(recordKey(record.id), record, { ex: 60 * 60 * 24 * 365 });
   return true;
+}
+
+export async function observeLinkClick(id: string, linkId: string, userAgent: string) {
+  const redis = redisFromEnvironment();
+  if (!redis || !/^[0-9a-f-]{36}$/i.test(id) || !/^[a-z0-9-]{1,40}$/i.test(linkId)) return null;
+  const record = await redis.get<TrackingRecord>(recordKey(id));
+  if (!record || record.status !== "sent" || !record.trackingEnabled) return null;
+  const link = (record.trackedLinks || []).find((item) => item.id === linkId);
+  if (!link) return null;
+  const observedAt = new Date().toISOString();
+  const event: LinkClickEvent = { observedAt, linkId, url: link.url, userAgent: userAgent.slice(0, 240) || "Unknown email client" };
+  const updated: TrackingRecord = {
+    ...record,
+    clickCount: (record.clickCount || 0) + 1,
+    clicks: [event, ...(record.clicks || [])].slice(0, MAX_EVENTS_PER_EMAIL),
+  };
+  await redis.set(recordKey(id), updated, { ex: 60 * 60 * 24 * 365 });
+  return { record: updated, url: link.url };
 }
 
 export async function markTrackingRecordSent(id: string, gmailMessageId: string) {

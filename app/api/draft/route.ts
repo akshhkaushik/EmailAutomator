@@ -627,9 +627,6 @@ function composeEmail(input: {
     humblePitch(input.pitch, input.highlightTerms || []),
     "If any of this feels useful, I’d be grateful for the chance to learn more about your priorities and explore whether I could contribute to the team.",
   );
-  if (!/(?:résumé|resume)/i.test(paragraphs.join(" "))) {
-    paragraphs.push("I’ve attached my résumé for context.");
-  }
   paragraphs.push(EMAIL_SIGNATURE);
   return paragraphs.filter(Boolean).join("\n\n");
 }
