@@ -2,6 +2,8 @@
 
 Aksh Outreach researches a company website, connects that research to your experience and projects, prepares a personalized job-outreach email, attaches your résumé, sends through Gmail only after a final review, and records observed email-open activity.
 
+It also includes a bounded startup intelligence workflow from accelerator discovery through evidence, scoring, contribution hypotheses, proof-gated build specifications, audited outreach, outcomes, follow-up recommendations, and cautious learning analytics. Intelligence-derived company claims are validated against the evidence ledger before Gmail. Discovery, research, scoring, planning, and follow-up recommendations never send automatically.
+
 ## What it does
 
 - Uses the recipient email, recipient name, and company website to research the correct company.
@@ -30,6 +32,21 @@ npm run dev
 ```
 
 Open `http://localhost:3000`.
+
+## Architecture
+
+The Next.js App Router UI calls server-side route handlers. Domain modules under `lib/` keep discovery, intelligence, scoring, contribution, build, outreach, and learning logic outside React components. Upstash Redis repositories provide durable storage, locks, rate limits, idempotency, tracking, and analytics. In-memory repositories are limited to deterministic unit tests and local fallbacks.
+
+The primary workflow is:
+
+```text
+Accelerator → Cohort → Startup → Research Sources → EvidenceLedger
+→ Startup Intelligence → Opportunity Score → Contribution Opportunity
+→ BuildSpec/Proof → Evidence-validated Outreach → Human Review → Gmail
+→ Outcome → Follow-up Recommendation → Learning Analytics
+```
+
+See the architecture documents in [`docs/`](./docs), especially [the security model](./docs/SECURITY.md) and [operations guide](./docs/OPERATIONS.md).
 
 ## Required services
 
@@ -64,15 +81,18 @@ Company research first requests the public site directly with browser-compatible
 
 AI Gateway and OpenAI are disabled unless `ENABLE_PAID_AI_FALLBACKS=true`, preventing accidental billing and quota noise. When intentionally enabled, `AI_MODEL` selects the Vercel provider/model identifier. Website research is compressed before generation and model output is capped at 1,200 tokens.
 
-### Email analytics storage
+### Database and durable storage
 
-Connect **Upstash for Redis** from the Vercel Marketplace. Vercel injects the REST URL and token automatically. Local development can use `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+Connect **Upstash for Redis** from the Vercel Marketplace. Vercel injects the REST URL and token automatically. Local development can use `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Discovery records use the same service under a separate key namespace and do not expire with email analytics.
+
+Redis stores accelerators, cohorts, startups, evidence, research runs, intelligence snapshots, opportunities, BuildSpecs, outreach audits, outcomes, tracking records, rate-limit counters, operation locks, and send-idempotency records. Production requires Redis even though selected legacy paths have process-local development fallbacks.
 
 ## Environment variables
 
 | Variable | Required | Visibility | Purpose |
 | --- | --- | --- | --- |
 | `GOOGLE_CLIENT_ID` | Yes, for sending | Returned to the browser by `/api/config` | Google OAuth web client identifier |
+| `DISCOVERY_OWNER_EMAIL` | Required in production | Server only | Restricts research, discovery, intelligence, analytics, outreach, outcomes, and sending to one verified Google email |
 | `AI_MODEL` | Optional | Server only | AI Gateway model; defaults to `openai/gpt-5.4` |
 | `AI_GATEWAY_API_KEY` | Local alternative only | Secret, server only | Static Gateway authentication when OIDC is unavailable |
 | `GEMINI_API_KEY` | Optional fallback | Secret, server only | Direct Gemini access, including eligible free-tier usage |
@@ -83,8 +103,8 @@ Connect **Upstash for Redis** from the Vercel Marketplace. Vercel injects the RE
 | `OPENAI_MODEL` | Optional fallback | Server only | Direct OpenAI model; defaults to `gpt-5.4` |
 | `ENABLE_PAID_AI_FALLBACKS` | Optional | Server only | Set to `true` only if AI Gateway/OpenAI billing fallbacks are intentionally enabled; defaults to disabled |
 | `JINA_API_KEY` | Optional | Server only | Higher limits for blocked-site recovery through Jina Reader; anonymous basic usage works without it |
-| `UPSTASH_REDIS_REST_URL` | Yes, for tracking | Secret, server only | Durable analytics storage URL |
-| `UPSTASH_REDIS_REST_TOKEN` | Yes, for tracking | Secret, server only | Durable analytics storage token |
+| `UPSTASH_REDIS_REST_URL` | Required in production | Secret, server only | Durable workflow, analytics, lock, and idempotency storage URL |
+| `UPSTASH_REDIS_REST_TOKEN` | Required in production | Secret, server only | Durable workflow, analytics, lock, and idempotency storage token |
 
 ## Deploy to Vercel
 
@@ -96,10 +116,35 @@ npx vercel --prod
 
 After the first deployment, add the exact production origin to the Google OAuth Client ID, then redeploy if the domain changes.
 
+The repository also contains `.openai/hosting.json` for private Sites hosting. Preserve that manifest and configure runtime secrets through the hosting environment rather than committing them. Run the complete verification suite before either deployment path.
+
+## Testing
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+Tests use fixture HTML, in-memory repositories, injected fetch implementations, and mocked Gmail responses. They do not require live startup sites and never send real email.
+
+## Startup and opportunity workflow
+
+Add an accelerator and optional cohort, run bounded portfolio discovery, then research a startup. Evidence remains source-attributed and unknown fields stay unknown. Deterministic scoring ranks the startup for Aksh, and the contribution engine only proposes small projects supported by both startup evidence and the formal Aksh project catalog. S-tier approved opportunities can become BuildSpecs; completed proof must be attached by the user.
+
+## Outreach workflow
+
+Choose an approved opportunity and outreach mode. Build-before-ask and open-source modes require a completed BuildSpec plus a GitHub repository, pull request, or demo URL. The generator receives structured context rather than a raw scrape. Every factual startup statement must pass EvidenceLedger validation before review and again before Gmail. The final send remains an explicit, single-recipient action.
+
+## Operations and security
+
+External web content is untrusted. Fetches use DNS-aware SSRF checks, timeouts, response limits, manual redirects, and bounded crawling. AI prompts separate system instructions, untrusted evidence, and generated output. Concurrent discovery/research jobs are locked, all sends are idempotent, and structured logs omit tokens, recipients, subjects, bodies, and résumé data. Detailed controls and runbooks are in [SECURITY.md](./docs/SECURITY.md) and [OPERATIONS.md](./docs/OPERATIONS.md).
+
 ## Safety and privacy
 
 - Signal never stores a Gmail password.
-- Gmail access tokens remain short-lived. A still-valid token is retained on this browser across reloads, refreshed shortly before expiry while the app is open, and reacquired silently on later visits when Google permits it. Disconnecting revokes the grant and clears the browser token and preference.
+- Gmail access tokens remain short-lived and are stored only for the current browser session. A still-valid token survives a reload, is refreshed shortly before expiry while the app is open, and is reacquired silently on later visits when Google permits it. Disconnecting revokes the grant and clears the browser token and preference.
 - The résumé is read for the selected send and is not persisted by the app.
 - Company claims are restricted to readable content fetched from the supplied website.
 - Sending is single-recipient and review-first.

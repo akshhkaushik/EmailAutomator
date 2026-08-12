@@ -9,7 +9,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "npm run build",
+    "test": "npm run test:unit",
+    "test:unit": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern .next --ignore-pattern dist"
   },
   "dependencies": {

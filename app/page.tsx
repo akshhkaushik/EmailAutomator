@@ -3,6 +3,8 @@
 import Script from "next/script";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown";
+import DiscoveryView from "./discovery-view";
+import type { FollowUpRecommendation, LearningAnalytics, OutreachOutcome } from "@/lib/learning/types";
 
 type Draft = {
   companyUrl: string;
@@ -50,6 +52,10 @@ type Analytics = {
   generatedAt: string;
   stats: { sent: number; selfTests: number; opened: number; unopened: number; openRate: number; totalOpenEvents: number };
   emails: TrackedEmail[];
+  outcomes: OutreachOutcome[];
+  followUps: FollowUpRecommendation[];
+  learning: LearningAnalytics;
+  dashboard: { startupsResearched: number; qualifiedStartups: number; outreachSent: number; replyRate: number; positiveReplyRate: number; interviews: number; opportunitiesBuilt: number; opportunitiesConverted: number };
 };
 
 const initialProfile: Profile = {
@@ -81,23 +87,29 @@ type SavedCompose = {
 
 function readCachedGmailToken(): CachedGmailToken | null {
   try {
-    const value = localStorage.getItem(GMAIL_TOKEN_KEY);
+    localStorage.removeItem(GMAIL_TOKEN_KEY);
+    const value = sessionStorage.getItem(GMAIL_TOKEN_KEY);
     if (!value) return null;
     const cached = JSON.parse(value) as Partial<CachedGmailToken>;
     if (typeof cached.accessToken !== "string" || typeof cached.expiresAt !== "number" || cached.expiresAt <= Date.now() + TOKEN_EXPIRY_BUFFER_MS) {
-      localStorage.removeItem(GMAIL_TOKEN_KEY);
+      sessionStorage.removeItem(GMAIL_TOKEN_KEY);
       return null;
     }
     return { accessToken: cached.accessToken, expiresAt: cached.expiresAt };
   } catch {
-    localStorage.removeItem(GMAIL_TOKEN_KEY);
+    sessionStorage.removeItem(GMAIL_TOKEN_KEY);
     return null;
   }
 }
 
 function saveCachedGmailToken(accessToken: string, expiresAt: number) {
   localStorage.setItem(GMAIL_CONNECTION_KEY, "true");
-  localStorage.setItem(GMAIL_TOKEN_KEY, JSON.stringify({ accessToken, expiresAt }));
+  sessionStorage.setItem(GMAIL_TOKEN_KEY, JSON.stringify({ accessToken, expiresAt }));
+}
+
+function clearCachedGmailToken() {
+  sessionStorage.removeItem(GMAIL_TOKEN_KEY);
+  localStorage.removeItem(GMAIL_TOKEN_KEY);
 }
 
 declare global {
@@ -130,7 +142,7 @@ function formatTime(value: string | null) {
 }
 
 export default function Home() {
-  const [view, setView] = useState<"compose" | "analytics">("compose");
+  const [view, setView] = useState<"compose" | "discovery" | "analytics">("compose");
   const [profile, setProfile] = useState<Profile>(initialProfile);
   const [companyUrl, setCompanyUrl] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
@@ -155,6 +167,7 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      if (new URLSearchParams(window.location.search).get("view") === "discovery") setView("discovery");
       const saved = localStorage.getItem(PROFILE_STORAGE_KEY);
       if (saved) {
         try {
@@ -227,14 +240,14 @@ export default function Home() {
           tokenRefreshTimerRef.current = window.setTimeout(requestSilently, Math.max(expiresAt - Date.now() - TOKEN_EXPIRY_BUFFER_MS, 60_000));
         } else if (wasSilent) {
           setGmailToken("");
-          localStorage.removeItem(GMAIL_TOKEN_KEY);
+          clearCachedGmailToken();
           setNotice("Reconnect Gmail once to continue.");
         } else setNotice("Gmail connection was not completed.");
       },
       error_callback: () => {
         silentReconnectRef.current = false;
         setGmailToken("");
-        localStorage.removeItem(GMAIL_TOKEN_KEY);
+        clearCachedGmailToken();
         setNotice("Google needs one click to reconnect Gmail.");
       },
     });
@@ -255,7 +268,7 @@ export default function Home() {
       const response = await fetch("/api/analytics", { headers: { Authorization: `Bearer ${gmailToken}` }, cache: "no-store" });
       const result = await response.json();
       if (response.status === 401) {
-        localStorage.removeItem(GMAIL_TOKEN_KEY);
+        clearCachedGmailToken();
         setGmailToken("");
       }
       if (!response.ok) throw new Error(result.error || "Analytics could not be loaded.");
@@ -286,17 +299,19 @@ export default function Home() {
     const finish = () => {
       if (tokenRefreshTimerRef.current) window.clearTimeout(tokenRefreshTimerRef.current);
       localStorage.removeItem(GMAIL_CONNECTION_KEY);
-      localStorage.removeItem(GMAIL_TOKEN_KEY);
+      clearCachedGmailToken();
       setGmailToken(""); setAnalytics(null); setNotice("Gmail disconnected.");
     };
     if (gmailToken && window.google) window.google.accounts.oauth2.revoke(gmailToken, finish); else finish();
   }
 
   async function generateDraft(event: FormEvent) {
-    event.preventDefault(); setNotice(""); setStatus("researching"); setDraft(null);
+    event.preventDefault();
+    if (!gmailToken) { connectGmail(); return; }
+    setNotice(""); setStatus("researching"); setDraft(null);
     try {
       const response = await fetch("/api/draft", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${gmailToken}` },
         body: JSON.stringify({ companyUrl, recipientEmail, recipientName, profile }),
         signal: AbortSignal.timeout(55_000),
       });
@@ -332,7 +347,7 @@ export default function Home() {
       });
       const result = await response.json();
       if (response.status === 401) {
-        localStorage.removeItem(GMAIL_TOKEN_KEY);
+        clearCachedGmailToken();
         setGmailToken("");
       }
       if (!response.ok) throw new Error(result.error || "Gmail could not send this message.");
@@ -352,6 +367,7 @@ export default function Home() {
         </button>
         <nav className="view-nav" aria-label="Workspace views">
           <button className={view === "compose" ? "active" : ""} aria-current={view === "compose" ? "page" : undefined} onClick={() => setView("compose")} type="button">Compose</button>
+          <button className={view === "discovery" ? "active" : ""} aria-current={view === "discovery" ? "page" : undefined} onClick={() => setView("discovery")} type="button">Discovery</button>
           <button className={view === "analytics" ? "active" : ""} aria-current={view === "analytics" ? "page" : undefined} onClick={() => setView("analytics")} type="button">Analytics</button>
         </nav>
         <button className={`connection ${gmailToken ? "connected" : ""}`} title={gmailToken ? "Connected on this browser · click to disconnect" : "Connect Gmail"} onClick={gmailToken ? disconnectGmail : connectGmail} type="button">
@@ -425,16 +441,22 @@ export default function Home() {
             </aside>
           </div>
         </div>
+      ) : view === "discovery" ? (
+        <DiscoveryView gmailToken={gmailToken} onConnect={connectGmail} onTokenExpired={() => { clearCachedGmailToken(); setGmailToken(""); }} />
       ) : (
-        <AnalyticsView analytics={analytics} loading={analyticsLoading} error={analyticsError} gmailConnected={Boolean(gmailToken)} onConnect={connectGmail} onRefresh={loadAnalytics} />
+        <AnalyticsView analytics={analytics} loading={analyticsLoading} error={analyticsError} gmailConnected={Boolean(gmailToken)} gmailToken={gmailToken} onConnect={connectGmail} onRefresh={loadAnalytics} />
       )}
     </main>
   );
 }
 
-function AnalyticsView({ analytics, loading, error, gmailConnected, onConnect, onRefresh }: {
-  analytics: Analytics | null; loading: boolean; error: string; gmailConnected: boolean; onConnect: () => void; onRefresh: () => void;
+function AnalyticsView({ analytics, loading, error, gmailConnected, gmailToken, onConnect, onRefresh }: {
+  analytics: Analytics | null; loading: boolean; error: string; gmailConnected: boolean; gmailToken: string; onConnect: () => void; onRefresh: () => void;
 }) {
+  async function classifyOutcome(id: string, replyClassification: string) {
+    const response = await fetch("/api/outcomes", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${gmailToken}` }, body: JSON.stringify({ id, replyClassification }) });
+    if (response.ok) onRefresh();
+  }
   return <div className="page-wrap analytics-page">
     <header className="analytics-heading"><div><p className="kicker">Outreach analytics</p><h1>Know what happened after send.</h1><p>Open events are recorded to the second when the tracking image is requested.</p></div><button className="secondary-button" type="button" onClick={onRefresh} disabled={!gmailConnected || loading}>{loading ? "Refreshing…" : "Refresh data"}</button></header>
     <div className="accuracy-note"><b>How to read this:</b> “Opened” means the tracking image was loaded. Gmail and Apple can proxy or pre-load images, while recipients who block images may read without creating an event. Emails sent to your own connected mailbox are treated as self-tests and excluded automatically.</div>
@@ -447,6 +469,21 @@ function AnalyticsView({ analytics, loading, error, gmailConnected, onConnect, o
         <div className="metric"><span>Open rate</span><b>{analytics?.stats.openRate ?? 0}%</b><small>At least one observed load</small></div>
         <div className="metric"><span>Open events</span><b>{analytics?.stats.totalOpenEvents ?? 0}</b><small>Including repeat loads</small></div>
       </section>
+      <section className="metric-grid" aria-label="Outcome metrics">
+        <div className="metric"><span>Startups researched</span><b>{analytics?.dashboard?.startupsResearched ?? 0}</b><small>Evidence-backed intelligence</small></div>
+        <div className="metric"><span>Qualified startups</span><b>{analytics?.dashboard?.qualifiedStartups ?? 0}</b><small>Score tier B or higher</small></div>
+        <div className="metric"><span>Outreach sent</span><b>{analytics?.dashboard?.outreachSent ?? 0}</b><small>Audited intelligence outreach</small></div>
+        <div className="metric"><span>Reply rate</span><b>{analytics?.dashboard?.replyRate ?? 0}%</b><small>n = {analytics?.learning?.totals.sent ?? 0}</small></div>
+      </section>
+      <section className="metric-grid" aria-label="Conversion metrics">
+        <div className="metric"><span>Positive reply rate</span><b>{analytics?.dashboard?.positiveReplyRate ?? 0}%</b><small>Interested, maybe, or referral</small></div>
+        <div className="metric"><span>Interviews</span><b>{analytics?.dashboard?.interviews ?? 0}</b><small>Manually recorded outcomes</small></div>
+        <div className="metric"><span>Opportunities built</span><b>{analytics?.dashboard?.opportunitiesBuilt ?? 0}</b><small>Completed BuildSpecs</small></div>
+        <div className="metric"><span>Opportunities converted</span><b>{analytics?.dashboard?.opportunitiesConverted ?? 0}</b><small>Positive built outreach</small></div>
+      </section>
+      <section className="panel activity-panel learning-panel"><div className="activity-heading"><div><h2>Follow-up recommendations</h2><p>Recommendations only—each must return to review before sending.</p></div><span>{analytics?.followUps?.length ?? 0} due</span></div>{!analytics?.followUps?.length ? <div className="table-empty"><p>No follow-ups are due.</p></div> : analytics.followUps.map((item) => <article key={item.outcomeId}><b>Day {item.cadenceDay} · follow-up {item.followUpNumber}</b><p>{item.reason} {item.suggestedAngle}</p><span>Approval required</span></article>)}</section>
+      <section className="panel activity-panel learning-panel outcomes-panel"><div className="activity-heading"><div><h2>Outcomes</h2><p>Classify replies manually; opens are not treated as replies.</p></div><span>{analytics?.outcomes?.length ?? 0} outreach records</span></div>{!analytics?.outcomes?.length ? <div className="table-empty"><p>No intelligence outreach has been sent yet.</p></div> : analytics.outcomes.map((item) => <article key={item.id}><b>{item.startupTier} tier · {item.outreachMode.replaceAll("_", " ")}</b><p>{item.contributionType} · sent {formatTime(item.sentAt)}</p><select aria-label="Reply classification" value={item.replyClassification || ""} onChange={(event) => void classifyOutcome(item.id, event.target.value)}><option value="">Pending</option><option value="interested">Interested</option><option value="maybe">Maybe</option><option value="referral">Referral</option><option value="wrong_person">Wrong person</option><option value="rejected">Rejected</option><option value="no_response">No response</option></select></article>)}</section>
+      <section className="panel activity-panel learning-panel"><div className="activity-heading"><div><h2>Learning signals</h2><p>Descriptive samples only; scoring weights never change automatically.</p></div></div>{!analytics?.learning?.suggestedAdjustments.length ? <div className="table-empty"><p>No adjustment suggestion has enough data yet.</p></div> : analytics.learning.suggestedAdjustments.map((item) => <article key={item.title}><b>{item.title}</b><p>{item.evidence}</p><span>n = {item.sampleSize} · human approval required</span></article>)}</section>
       <section className="panel activity-panel">
         <div className="activity-heading"><div><h2>Email activity</h2><p>{analytics?.generatedAt ? `Updated ${formatTime(analytics.generatedAt)}` : "Waiting for the first refresh"}</p></div><span>{analytics?.emails.length ?? 0} total</span></div>
         {!analytics || analytics.emails.length === 0 ? <div className="table-empty"><h3>No tracked emails yet</h3><p>Send an email with “Track opens” enabled and it will appear here.</p></div>
