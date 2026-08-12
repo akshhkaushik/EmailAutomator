@@ -46,7 +46,9 @@ export async function POST(request: Request) {
       sourceUrl: suppliedUrl.toString(), researchedAt: new Date().toISOString(),
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
-    structuredLog("error", "direct_research.failed", { errorType: errorName(error) });
+    if (!(error instanceof DiscoveryAccessError)) {
+      structuredLog("error", "direct_research.failed", { errorType: errorName(error) });
+    }
     return Response.json({ error: error instanceof Error ? error.message : "Startup research failed." }, { status: error instanceof DiscoveryAccessError ? error.status : 400 });
   }
 }

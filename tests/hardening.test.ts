@@ -3,7 +3,7 @@ import test from "node:test";
 import { jsonBody } from "../lib/discovery/api.ts";
 import { GmailApiError, sendRawGmailMessage } from "../lib/gmail.ts";
 import { retry, withOperationLock, OperationInProgressError } from "../lib/reliability.ts";
-import { beginSendAttempt, completeSendAttempt, emailSendFingerprint, releaseSendAttempt } from "../lib/tracking.ts";
+import { beginSendAttempt, completeSendAttempt, emailSendFingerprint, releaseSendAttempt, verifyGoogleAccessToken } from "../lib/tracking.ts";
 
 test("bounded JSON parsing rejects oversized API payloads", async () => {
   const request = new Request("https://app.test/api", {
@@ -86,4 +86,12 @@ test("Gmail client performs one authenticated send and validates its response", 
 
   const rejected = (async () => Response.json({ error: { message: "denied" } }, { status: 403 })) as typeof fetch;
   await assert.rejects(() => sendRawGmailMessage("access-token-value", "encoded-mime", rejected), (error) => error instanceof GmailApiError && error.status === 403);
+});
+
+test("Google token validation replaces opaque provider errors with reconnect guidance", async () => {
+  const expired = (async () => Response.json({ error: "invalid_token", error_description: "Invalid Value" }, { status: 400 })) as typeof fetch;
+  await assert.rejects(
+    () => verifyGoogleAccessToken(`Bearer ${"x".repeat(24)}`, expired),
+    /Gmail permission expired\. Reconnect Gmail and try again/i,
+  );
 });

@@ -210,11 +210,11 @@ export async function listTrackingRecords(senderEmail: string, limit = 100) {
   return records.filter((record): record is TrackingRecord => Boolean(record && record.status === "sent"));
 }
 
-export async function verifyGoogleAccessToken(authorization: string | null) {
+export async function verifyGoogleAccessToken(authorization: string | null, fetcher: typeof fetch = fetch) {
   if (!authorization?.startsWith("Bearer ")) throw new Error("Connect Gmail to view or create analytics.");
   const token = authorization.slice(7);
   if (token.length < 16 || token.length > 4_096) throw new Error("Reconnect Gmail to verify your access.");
-  const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`, {
+  const response = await fetcher(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`, {
     cache: "no-store",
     signal: AbortSignal.timeout(5_000),
   });
@@ -222,10 +222,14 @@ export async function verifyGoogleAccessToken(authorization: string | null) {
     aud?: string;
     email?: string;
     email_verified?: string | boolean;
+    error?: string;
     error_description?: string;
   };
   if (!response.ok || !data.email || (data.email_verified !== "true" && data.email_verified !== true)) {
-    throw new Error(data.error_description || "Reconnect Gmail to verify your analytics access.");
+    // Google's token-info endpoint sometimes returns opaque provider messages
+    // such as "Invalid Value" for expired or revoked access tokens. Never pass
+    // that through to the product UI; the only useful recovery is reconnecting.
+    throw new Error("Your Gmail permission expired. Reconnect Gmail and try again.");
   }
   const configuredClientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
   if (configuredClientId && data.aud !== configuredClientId) {

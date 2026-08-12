@@ -305,6 +305,10 @@ export default function Home() {
         body: JSON.stringify({ companyUrl }), signal: AbortSignal.timeout(30_000),
       });
       const researchResult = await researchResponse.json() as DirectResearch & { error?: string };
+      if (researchResponse.status === 401) {
+        clearCachedGmailToken();
+        setGmailToken("");
+      }
       if (!researchResponse.ok) throw new Error(researchResult.error || "Could not research the startup or identify a founder.");
       setDirectResearch(researchResult);
       setRecipientName(researchResult.selectedFounder?.name || "");
@@ -318,6 +322,10 @@ export default function Home() {
         signal: AbortSignal.timeout(55_000),
       });
       const result = await response.json();
+      if (response.status === 401) {
+        clearCachedGmailToken();
+        setGmailToken("");
+      }
       if (!response.ok) throw new Error(result.error || "Could not create the draft.");
       setDraft(result); setSubject(result.subject); setBody(result.body); setStatus("ready");
       setNotice(researchResult.contact?.email
