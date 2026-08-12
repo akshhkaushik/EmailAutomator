@@ -47,16 +47,6 @@ const EMAIL_SIGNATURE = [
   "Email: aksh.heisenberg@gmail.com",
 ].join("\n");
 
-const FIXED_PORTFOLIO_TITLES = new Set(["CEO Voice Platform", "Veritas", "EvoComb", "GLOB"]);
-
-const FIXED_PORTFOLIO_BLOCK = [
-  "Over the past year, I’ve spent most of my time building AI and data systems intended for real use rather than only demonstrations. A few examples I’d be grateful to share are:",
-  "**[CEO Voice Platform](https://ceo-voice-platform-two.vercel.app/)** — an end-to-end system for recreating a leader’s writing style using hybrid RAG, structured retrieval, evaluation pipelines, constraint-preserving re-voicing, and production-oriented backend architecture.",
-  "**[Veritas](https://veritas-virid.vercel.app/)** — an AI-powered real-time fact-checking platform with FastAPI, vector search, graph databases, retrieval pipelines, browser-extension support, and mobile support.",
-  "I’ve also been developing **Geospatial Intelligence Platforms** that combine satellite imagery, environmental indicators, sensor networks, and open geospatial datasets for urban analytics and sustainability research. One example is **[EvoComb — Environmental Stress Index for Delhi NCR](https://evo-comb-web.vercel.app/)**.",
-  "Alongside that, I build **Interactive Geospatial Visualization Experiences** that make complex spatial data easier to explore. **[GLOB](https://glob.akshh.workers.dev/)** is one example, using modern web technologies to turn spatial datasets into an intuitive interactive experience.",
-].join("\n\n");
-
 function contributionSubject(companyName: string) {
   return `I’d love to contribute to ${cleanGeneratedText(companyName)}`;
 }
@@ -617,11 +607,10 @@ function composeEmail(input: {
     personalIntroduction(input.companyName, input.companyUrl),
     highlightTerms(input.companyObservation, input.highlightTerms || []),
     uniqueSenderWork(input.senderWork, input.highlightTerms || []),
-    FIXED_PORTFOLIO_BLOCK,
   ];
-  const additionalProjects = input.selectedProjects.filter((project) => !FIXED_PORTFOLIO_TITLES.has(project.title));
-  if (additionalProjects.length > 0) {
-    paragraphs.push(projectLinks(additionalProjects));
+  const mostRelevantProject = input.selectedProjects.slice(0, 1);
+  if (mostRelevantProject.length > 0) {
+    paragraphs.push(projectLinks(mostRelevantProject));
   }
   paragraphs.push(
     humblePitch(input.pitch, input.highlightTerms || []),

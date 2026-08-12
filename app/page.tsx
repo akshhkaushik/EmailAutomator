@@ -78,22 +78,11 @@ const initialProfile: Profile = {
 };
 
 const PROFILE_STORAGE_KEY = "signal-profile";
-const COMPOSE_STORAGE_KEY = "signal-compose-v1";
 const GMAIL_CONNECTION_KEY = "signal-gmail-autoconnect";
 const GMAIL_TOKEN_KEY = "signal-gmail-token-v1";
 const TOKEN_EXPIRY_BUFFER_MS = 120_000;
 
 type CachedGmailToken = { accessToken: string; expiresAt: number };
-type SavedCompose = {
-  companyUrl: string;
-  recipientEmail: string;
-  recipientName: string;
-  draft: Draft | null;
-  subject: string;
-  body: string;
-  trackOpens: boolean;
-};
-
 function readCachedGmailToken(): CachedGmailToken | null {
   try {
     localStorage.removeItem(GMAIL_TOKEN_KEY);
@@ -194,20 +183,9 @@ export default function Home() {
           });
         } catch { localStorage.removeItem(PROFILE_STORAGE_KEY); }
       }
-      const savedCompose = localStorage.getItem(COMPOSE_STORAGE_KEY);
-      if (savedCompose) {
-        try {
-          const parsed = JSON.parse(savedCompose) as Partial<SavedCompose>;
-          setCompanyUrl(typeof parsed.companyUrl === "string" ? parsed.companyUrl : "");
-          setRecipientEmail(typeof parsed.recipientEmail === "string" ? parsed.recipientEmail : "");
-          setRecipientName(typeof parsed.recipientName === "string" ? parsed.recipientName : "");
-          setDraft(parsed.draft && typeof parsed.draft === "object" ? parsed.draft : null);
-          setSubject(typeof parsed.subject === "string" ? parsed.subject : "");
-          setBody(typeof parsed.body === "string" ? parsed.body : "");
-          setTrackOpens(typeof parsed.trackOpens === "boolean" ? parsed.trackOpens : true);
-          if (parsed.draft && typeof parsed.draft === "object") setStatus("ready");
-        } catch { localStorage.removeItem(COMPOSE_STORAGE_KEY); }
-      }
+      // Older builds persisted drafts in the browser. Start every focused
+      // startup-link workflow clean so a previous recipient cannot leak into it.
+      localStorage.removeItem("signal-compose-v1");
       const cachedGmail = readCachedGmailToken();
       if (cachedGmail) setGmailToken(cachedGmail.accessToken);
       setProfileRestored(true);
@@ -219,15 +197,6 @@ export default function Home() {
   useEffect(() => {
     if (profileRestored) localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
   }, [profile, profileRestored]);
-
-  useEffect(() => {
-    if (!profileRestored) return;
-    const timer = window.setTimeout(() => {
-      const saved: SavedCompose = { companyUrl, recipientEmail, recipientName, draft, subject, body, trackOpens };
-      localStorage.setItem(COMPOSE_STORAGE_KEY, JSON.stringify(saved));
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, [body, companyUrl, draft, profileRestored, recipientEmail, recipientName, subject, trackOpens]);
 
   useEffect(() => {
     if (!googleClientId || !googleScriptReady || !window.google) return;
