@@ -54,7 +54,7 @@ export function composeFocusedOutreachEmail(input: FocusedOutreachInput) {
     `I’m Aksh Kaushik, a third-year student at BITS Pilani. I came across **[${markdownLabel(input.companyName)}](${input.companyUrl})** while researching the company.`,
     highlight(input.companyObservation, terms),
     focusedPitch(input.pitch, terms),
-    `I’m currently building practical AI, product, and automation systems; you can see the broader direction of my work in my **[portfolio](${safePortfolioUrl(input.portfolioUrl)})**.`,
+    `I’m currently building practical AI, product, and automation systems; you can see the broader direction of my work in my **[portfolio](${safePortfolioUrl(input.portfolioUrl)})**. I’ve attached my CV for context.`,
     "If this direction is relevant, I’d be grateful for a brief conversation to understand the real constraint and see whether a small prototype could be useful.",
     input.signature,
   ].filter(Boolean).join("\n\n");

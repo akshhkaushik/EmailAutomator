@@ -18,6 +18,7 @@ test("outreach points to the portfolio without listing completed projects", () =
   assert.match(body, /\[portfolio]\(https:\/\/akshhkaushik\.github\.io\/?\)/i);
   assert.match(body, /One concrete thing I could build/i);
   assert.match(body, /sales conversations/i);
+  assert.match(body, /attached my CV for context/i);
   assert.doesNotMatch(body, /I (?:have |have already )?built/i);
   assert.doesNotMatch(body, /CEO Voice|Veritas|EvoComb|GLOB/i);
 });

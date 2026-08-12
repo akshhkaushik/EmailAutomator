@@ -139,6 +139,20 @@ function formatTime(value: string | null) {
   }).format(new Date(value));
 }
 
+function fileAsBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      const encoded = value.includes(",") ? value.slice(value.indexOf(",") + 1) : "";
+      if (!encoded) reject(new Error("The selected CV could not be read."));
+      else resolve(encoded);
+    };
+    reader.onerror = () => reject(new Error("The selected CV could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function Home() {
   const [view, setView] = useState<"compose" | "analytics">("compose");
   const [profile, setProfile] = useState<Profile>(initialProfile);
@@ -159,6 +173,7 @@ export default function Home() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState("");
   const [directResearch, setDirectResearch] = useState<DirectResearch | null>(null);
+  const [cvFile, setCvFile] = useState<File | null>(null);
   const tokenClientRef = useRef<{ requestAccessToken: (overrideConfig?: { prompt?: string }) => void } | null>(null);
   const tokenRefreshTimerRef = useRef<number | null>(null);
   const silentReconnectRef = useRef(false);
@@ -323,8 +338,10 @@ export default function Home() {
     if (!gmailToken) return connectGmail();
     const contactIsSafe = Boolean(directResearch?.contact?.email) && (directResearch?.contact?.verificationStatus === "valid" || (directResearch?.contact?.verificationStatus === "accept_all" && (directResearch?.contact?.confidence || 0) >= 85));
     if (!contactIsSafe || recipientEmail !== directResearch?.contact?.email) return setNotice("A safely verified founder email is required before sending.");
+    if (!cvFile) return setNotice("Attach your CV before sending.");
     setStatus("sending"); setNotice("");
     try {
+      const cvBase64 = await fileAsBase64(cvFile);
       const response = await fetch("/api/send", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${gmailToken}` },
@@ -332,6 +349,7 @@ export default function Home() {
           to: recipientEmail, recipientName, subject, body, trackOpens,
           companyName: draft?.companyName || companyHost,
           companyUrl: draft?.companyUrl || companyUrl,
+          resume: { name: cvFile.name, type: cvFile.type || "application/pdf", base64: cvBase64 },
         }),
       });
       const result = await response.json();
@@ -410,9 +428,29 @@ export default function Home() {
                     <details className="source-editor"><summary>Edit message text</summary><textarea rows={18} aria-label="Message source" value={body} onChange={(event) => setBody(event.target.value)} /><p>Use **bold** and [linked text](https://example.com).</p></details>
                     <div className="send-options">
                       <label className="tracking-control"><input type="checkbox" checked={trackOpens} onChange={(event) => setTrackOpens(event.target.checked)} /><span><b>Track observed opens and link clicks</b><small>Open detection uses a pixel and can be blocked or proxied. Links are redirected through a click counter. Self-tests are excluded.</small></span></label>
+                      <label className={`file-field ${cvFile ? "ready" : ""}`}>
+                        <input
+                          type="file"
+                          required
+                          accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                          onChange={(event) => {
+                            const selected = event.target.files?.[0] || null;
+                            if (selected && selected.size > 8_000_000) {
+                              event.target.value = "";
+                              setCvFile(null);
+                              setNotice("Attach a CV smaller than 8 MB.");
+                              return;
+                            }
+                            setCvFile(selected);
+                            setNotice(selected ? `${selected.name} will be attached when you approve sending.` : "");
+                          }}
+                        />
+                        <span>{cvFile ? "✓" : "+"}</span>
+                        <div><b>{cvFile ? cvFile.name : "Attach CV (required)"}</b><small>{cvFile ? `${Math.max(1, Math.round(cvFile.size / 1024))} KB · attached only when Gmail sends` : "PDF, DOC, or DOCX · maximum 8 MB"}</small></div>
+                      </label>
                       <div className="attachment-note"><span>✓</span><div><b>Explicit approval required</b><small>No autonomous sending and no unverified recipient addresses.</small></div></div>
                     </div>
-                    <footer className="send-footer"><p>No system can guarantee inbox placement. Keep the email truthful and personal; it sends only when you press this button.</p><button className="send-button" type="button" disabled={!directResearch?.contact?.email || status === "sending" || status === "sent"} onClick={sendEmail}>{status === "sending" ? "Sending…" : status === "sent" ? "Sent ✓" : gmailToken ? "Review complete · Send" : "Connect Gmail to send"}</button></footer>
+                    <footer className="send-footer"><p>No system can guarantee inbox placement. Keep the email truthful and personal; it sends only when you press this button.</p><button className="send-button" type="button" disabled={!directResearch?.contact?.email || !cvFile || status === "sending" || status === "sent"} onClick={sendEmail}>{status === "sending" ? "Sending…" : status === "sent" ? "Sent ✓" : gmailToken ? cvFile ? "Review complete · Send with CV" : "Attach CV to send" : "Connect Gmail to send"}</button></footer>
                   </section>
                 </div>
               )}

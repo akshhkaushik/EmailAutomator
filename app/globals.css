@@ -131,7 +131,7 @@ textarea { resize: vertical; }
 .source-editor summary { padding: 12px 14px; }
 .source-editor textarea { width: calc(100% - 28px); margin: 0 14px 8px; min-height: 280px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 .source-editor p { margin: 0; padding: 0 14px 12px; color: var(--muted); font-size: 9px; }
-.send-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 24px 22px; }
+.send-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 0 24px 22px; }
 .tracking-control, .attachment-note { min-height: 64px; display: flex; align-items: center; gap: 11px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: #fafbfa; }
 .tracking-control { cursor: pointer; }
 .tracking-control input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); flex: 0 0 auto; }
