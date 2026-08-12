@@ -23,6 +23,8 @@ import { scoreStartupOpportunity } from "@/lib/scoring/engine";
 import { getOutcomeRepository } from "@/lib/learning/redis-repository";
 import type { OutreachDraftAudit } from "@/lib/outreach/types";
 import { GmailApiError, sendRawGmailMessage } from "@/lib/gmail";
+import { getFounderContactRepository } from "@/lib/contacts/redis-repository";
+import { canUseFounderContact } from "@/lib/contacts/service";
 
 function utf8Base64(value: string) {
   const bytes = new TextEncoder().encode(value);
@@ -83,6 +85,12 @@ export async function POST(request: Request) {
       if (!auditedDraft) return Response.json({ error: "The intelligence outreach draft was not found." }, { status: 404 });
       if (auditedDraft.sentAt) return Response.json({ error: "This outreach draft has already been sent." }, { status: 409 });
       const currentDraft = auditedDraft;
+      if (currentDraft.recipientContactId) {
+        const contact = await getFounderContactRepository().get(currentDraft.startupId, currentDraft.recipientContactId);
+        if (!contact || !canUseFounderContact(contact) || contact.email?.toLowerCase() !== to.toLowerCase()) {
+          return Response.json({ error: "The verified founder contact is missing, stale, or does not match this recipient. Run contact discovery again before sending." }, { status: 422 });
+        }
+      }
       const startup = await getDiscoveryRepository().getStartup(currentDraft.startupId);
       if (!startup) return Response.json({ error: "The startup linked to this draft was not found." }, { status: 404 });
       const evidence = await getIntelligenceRepository().listEvidence(currentDraft.startupId);

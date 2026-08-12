@@ -89,7 +89,7 @@ Redis stores accelerators, cohorts, startups, evidence, research runs, intellige
 
 ### Founder work-email discovery
 
-After research identifies a founder from public evidence, the app checks a small, transparent sequence beginning with `first@company-domain`, followed by `first.last`, `firstlast`, `flast`, and other lower-probability variants. Those combinations are labeled as inferred candidates and are never treated as facts. If `HUNTER_API_KEY` is configured, the server verifies each candidate in order and stores its status, confidence, and public source URLs. It stops at the first `valid` result, or an `accept_all` result with confidence of at least 85. Unknown, invalid, unresolved, and unverified candidates remain disabled. Gmail still requires explicit review and a separate send action.
+After research identifies a founder from public evidence, the native evidence engine visits a bounded set of same-domain contact, team, leadership, and about pages; extracts publicly published company-domain addresses; learns formats only from visible name/address pairings; checks DNS mail exchangers; and scores a small transparent candidate set. An exact public professional address plus a healthy mail domain can be selected without Hunter. Pattern evidence and MX records improve ordering but never prove that a mailbox exists. If `HUNTER_API_KEY` is configured, Hunter contributes an additional verification signal rather than acting as the sole authority. Unknown, invalid, unresolved, and unverified candidates remain disabled. Gmail still requires explicit review and a separate send action.
 
 ## Environment variables
 
@@ -107,7 +107,7 @@ After research identifies a founder from public evidence, the app checks a small
 | `OPENAI_MODEL` | Optional fallback | Server only | Direct OpenAI model; defaults to `gpt-5.4` |
 | `ENABLE_PAID_AI_FALLBACKS` | Optional | Server only | Set to `true` only if AI Gateway/OpenAI billing fallbacks are intentionally enabled; defaults to disabled |
 | `JINA_API_KEY` | Optional | Server only | Higher limits for blocked-site recovery through Jina Reader; anonymous basic usage works without it |
-| `HUNTER_API_KEY` | Optional | Secret, server only | Finds and verifies evidence-backed founders' professional company-domain email addresses; candidate guesses remain disabled without verification |
+| `HUNTER_API_KEY` | Optional | Secret, server only | Adds Hunter as an external corroborating verifier; native public evidence and DNS checks work without it |
 | `UPSTASH_REDIS_REST_URL` | Required in production | Secret, server only | Durable workflow, analytics, lock, and idempotency storage URL |
 | `UPSTASH_REDIS_REST_TOKEN` | Required in production | Secret, server only | Durable workflow, analytics, lock, and idempotency storage token |
 

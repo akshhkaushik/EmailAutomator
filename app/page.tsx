@@ -57,6 +57,7 @@ type DirectResearch = {
   selectedFounder: { name: string; role: string; profileUrl: string | null; source: string } | null;
   contact: FounderContact | null;
   providerConfigured: boolean;
+  externalProviderConfigured: boolean;
   sourceUrl: string;
   researchedAt: string;
 };
@@ -415,7 +416,7 @@ export default function Home() {
                   <section className="panel founder-result">
                     <div className="panel-heading"><div><span className="step-number">2</span><h2>Founder and email</h2></div><span>{directResearch?.contact?.verificationStatus || "not verified"}</span></div>
                     {directResearch?.selectedFounder ? <div className="founder-summary"><div><b>{directResearch.selectedFounder.name}</b><span>{directResearch.selectedFounder.role}</span><small>Source: {directResearch.selectedFounder.source}</small></div><div><b>{directResearch.contact?.email || "No verified address"}</b><span>{directResearch.contact ? `${directResearch.contact.confidence}% confidence · ${directResearch.contact.provider}` : "Founder found; email unresolved"}</span></div></div> : <p className="company-summary">No founder name was supported by the public page. Do not guess a person or recipient.</p>}
-                    {directResearch?.contact && !directResearch.contact.email && <details className="candidate-list"><summary>Inspect ordered email combinations</summary><ol>{directResearch.contact.candidates.map((candidate) => <li key={candidate.email}><b>#{candidate.rank} {candidate.pattern}</b><span>{candidate.email}</span><small>{candidate.verificationStatus}{candidate.confidence ? ` · ${candidate.confidence}%` : ""}</small></li>)}</ol></details>}
+                    {directResearch?.contact && !directResearch.contact.email && <details className="candidate-list"><summary>Inspect ordered email evidence</summary><ol>{directResearch.contact.candidates.map((candidate) => <li key={candidate.email} title={(candidate.evidence || []).map((item) => item.detail).join(" ")}><b>#{candidate.rank} {candidate.pattern}</b><span>{candidate.email}</span><small>{candidate.verificationStatus}{candidate.confidence ? ` · ${candidate.confidence}%` : ""}{(candidate.evidence || []).length ? ` · ${(candidate.evidence || []).map((item) => item.source).filter((source, index, all) => all.indexOf(source) === index).join(" + ")}` : ""}</small></li>)}</ol></details>}
                     <div className="form-grid founder-recipient-fields"><label>Recipient email<input readOnly type="email" value={recipientEmail} placeholder="No safely verified address" /></label><label>Recipient name<input readOnly value={recipientName} /></label></div>
                   </section>
                   <section className="panel research-panel">

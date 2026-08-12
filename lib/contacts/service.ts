@@ -1,9 +1,10 @@
 import type { DiscoveryRepository } from "../discovery/repository.ts";
 import type { IntelligenceRepository } from "../intelligence/repository.ts";
 import { opaqueId, structuredLog } from "../observability.ts";
-import { generateFounderEmailCandidates, patternForEmail } from "./candidates.ts";
+import { resolveFounderEmail } from "./evidence-engine.ts";
+import type { MailDomainInspector } from "./mail-domain.ts";
 import type { FounderContactRepository } from "./repository.ts";
-import type { FounderEmailFinder, FounderContact } from "./types.ts";
+import type { FounderEmailFinder, FounderContact, PublicEmailDocument } from "./types.ts";
 
 export async function discoverFounderContacts(input: {
   startupId: string;
@@ -12,6 +13,9 @@ export async function discoverFounderContacts(input: {
   intelligenceRepository: IntelligenceRepository;
   contactRepository: FounderContactRepository;
   finder?: FounderEmailFinder;
+  finders?: FounderEmailFinder[];
+  loadDocuments?: (urls: string[]) => Promise<PublicEmailDocument[]>;
+  inspectDomain?: MailDomainInspector;
 }) {
   const startup = await input.discoveryRepository.getStartup(input.startupId);
   if (!startup) throw new Error("Startup was not found.");
@@ -23,32 +27,24 @@ export async function discoverFounderContacts(input: {
     : intelligence.founders.value;
   if (founders.length === 0) throw new Error("The selected founder is not supported by startup evidence.");
 
+  const evidence = await input.intelligenceRepository.listEvidence(startup.id);
+  const sourceUrls = [startup.website, ...startup.sourceUrls, ...evidence.map((item) => item.sourceUrl), ...founders.map((founder) => founder.profileUrl === "unknown" ? "" : founder.profileUrl)];
+  const documents = input.loadDocuments ? await input.loadDocuments([...new Set(sourceUrls.filter(Boolean))]) : [];
+  const finders = input.finders || (input.finder ? [input.finder] : []);
+
   const contacts: FounderContact[] = [];
   for (const founder of founders.slice(0, 5)) {
-    let candidates = generateFounderEmailCandidates(founder.name, startup.domain);
     const existing = (await input.contactRepository.list(startup.id)).find((item) => item.founderName.toLowerCase() === founder.name.toLowerCase());
-    let result = null;
-    if (input.finder?.verify) {
-      const attempts = await Promise.all(candidates.slice(0, 5).map(async (candidate) => {
-        try { return await input.finder?.verify?.(candidate.email) || null; }
-        catch { return { email: candidate.email, status: "unknown" as const, score: 0, sources: [], verifiedAt: new Date().toISOString() }; }
-      }));
-      candidates = candidates.map((item, index) => {
-        const verification = attempts[index];
-        return verification ? { ...item, verificationStatus: verification.status, confidence: verification.score, verifiedAt: verification.verifiedAt } : item;
-      });
-      result = attempts.find((verification) => verification && (verification.status === "valid" || (verification.status === "accept_all" && verification.score >= 85))) || null;
-    } else if (input.finder) {
-      result = await input.finder.find({ founderName: founder.name, domain: startup.domain });
-    }
+    const resolution = await resolveFounderEmail({ founderName: founder.name, companyDomain: startup.domain, documents, finders, inspectDomain: input.inspectDomain });
+    const { result, candidates } = resolution;
     const now = new Date().toISOString();
     const contact: FounderContact = {
       id: existing?.id || crypto.randomUUID(), startupId: startup.id, founderName: founder.name, founderRole: founder.role,
       founderProfileUrl: founder.profileUrl === "unknown" ? null : founder.profileUrl, domain: startup.domain,
-      email: result?.email || null, pattern: result?.email ? patternForEmail(result.email, candidates) : null, candidates,
+      email: result?.email || null, pattern: resolution.pattern, candidates,
       origin: result ? (result.sources.length > 0 ? "public" : "inferred") : "unresolved",
       verificationStatus: result?.status || "unverified", confidence: result?.score || 0,
-      provider: result ? "hunter" : "local-patterns", sourceUrls: result?.sources || [],
+      provider: resolution.provider, sourceUrls: result?.sources || [],
       discoveredAt: existing?.discoveredAt || now, verifiedAt: result?.verifiedAt || null, updatedAt: now,
     };
     contacts.push(await input.contactRepository.upsert(contact));
@@ -57,6 +53,8 @@ export async function discoverFounderContacts(input: {
   return contacts;
 }
 
-export function canUseFounderContact(contact: FounderContact) {
-  return Boolean(contact.email) && (contact.verificationStatus === "valid" || (contact.verificationStatus === "accept_all" && contact.confidence >= 85));
+export function canUseFounderContact(contact: FounderContact, now = Date.now()) {
+  const verifiedAt = contact.verifiedAt ? Date.parse(contact.verifiedAt) : Number.NaN;
+  const fresh = Number.isFinite(verifiedAt) && now - verifiedAt <= 90 * 24 * 60 * 60 * 1_000;
+  return Boolean(contact.email) && fresh && (contact.verificationStatus === "valid" || (contact.verificationStatus === "accept_all" && contact.confidence >= 85));
 }
