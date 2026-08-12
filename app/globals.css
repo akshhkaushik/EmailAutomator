@@ -181,6 +181,23 @@ textarea { resize: vertical; }
 .discovery-page { padding-top: 54px; display: grid; gap: 18px; }
 .discovery-heading { margin-bottom: 0; }
 .discovery-page > .notice { margin: -6px 0 0; }
+.journey-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--line); list-style: none; }
+.journey-steps li { display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: #fff; color: var(--quiet); font-size: 9px; font-weight: 800; }
+.journey-steps li span { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: var(--soft); color: var(--muted); font-size: 8px; }
+.journey-steps li.active { color: var(--accent); }
+.journey-steps li.active span { background: var(--accent); color: #fff; }
+.finder-panel { padding: 24px; }
+.finder-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px; margin: 20px 0; }
+.finder-grid input, .finder-grid select { margin-top: 7px; }
+.finder-panel > .primary-button { width: 100%; }
+.accelerator-setup { scroll-margin-top: 80px; }
+.accelerator-setup > summary { padding: 14px 18px; border: 1px solid var(--line); border-radius: 8px; background: #fafbfa; color: var(--accent); cursor: pointer; font-size: 10px; font-weight: 800; }
+.accelerator-setup[open] > summary { margin-bottom: 18px; }
+.discovery-directory.accelerator-setup > summary { border: 0; border-radius: 0; }
+.selected-startup-workspace { display: grid; gap: 12px; scroll-margin-top: 80px; }
+.workspace-heading { padding: 5px 2px; }
+.workspace-heading h2 { margin: 3px 0 7px; font-size: 21px; }
+.workspace-heading p:last-child { margin: 0; color: var(--muted); font-size: 11px; }
 .discovery-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .discovery-form { display: grid; align-content: start; gap: 15px; padding: 24px; }
 .discovery-form .panel-heading { margin: -2px 0 3px; }
@@ -215,7 +232,8 @@ textarea { resize: vertical; }
 .startup-row p { max-width: 720px; margin: 6px 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .startup-row small { color: var(--quiet); font-size: 9px; }
 .startup-actions { min-width: 260px; display: grid; justify-items: end; gap: 9px; }
-.startup-actions > .intelligence-link { border-radius: 6px; background: var(--accent-soft); padding: 8px 10px; }
+.startup-actions > .intelligence-link { border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent); padding: 8px 10px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 800; }
+.startup-row.selected { background: #f8fbf9; box-shadow: inset 3px 0 var(--accent); }
 .startup-actions details { width: 100%; text-align: right; }
 .startup-actions summary { color: var(--accent); cursor: pointer; font-size: 9px; font-weight: 800; }
 .startup-actions details > div { display: grid; gap: 7px; margin-top: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 7px; background: #fafbfa; }
@@ -243,7 +261,15 @@ textarea { resize: vertical; }
 .unscored-summary b { font-size: 10px; }
 .unscored-summary span { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.45; }
 
-.intelligence-panel { overflow: hidden; scroll-margin-top: 84px; }
+.intelligence-panel { display: flex; flex-direction: column; overflow: hidden; scroll-margin-top: 84px; }
+.intelligence-header, .intelligence-panel > .notice, .scorecard-section { order: 0; }
+.intelligence-grid { order: 1; }
+.contact-discovery { order: 2; }
+.contribution-section { order: 3; }
+.build-workflow { order: 4; }
+.outreach-workflow { order: 5; }
+.evidence-ledger { order: 6; }
+.research-errors { order: 7; }
 .intelligence-header { display: flex; align-items: start; justify-content: space-between; gap: 24px; padding: 22px 24px; border-bottom: 1px solid var(--line); }
 .intelligence-header h2 { margin-top: 3px; }
 .intelligence-header p:last-child { margin: 7px 0 0; color: var(--muted); font-size: 10px; }
@@ -396,6 +422,7 @@ textarea { resize: vertical; }
   .email-row { grid-template-columns: 1fr 1.3fr 1fr 50px; }
   .email-time:first-of-type { display: none; }
   .discovery-form-grid { grid-template-columns: 1fr; }
+  .finder-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 720px) {
   .topbar { grid-template-columns: 1fr auto; padding: 0 16px; }
@@ -422,6 +449,8 @@ textarea { resize: vertical; }
   .send-footer { align-items: stretch; flex-direction: column; }
   .send-button { width: 100%; }
   .discovery-page { padding-top: 34px; }
+  .journey-steps { grid-template-columns: 1fr 1fr; }
+  .finder-grid { grid-template-columns: 1fr; }
   .accelerator-row, .startup-row { grid-template-columns: 1fr; }
   .accelerator-row > .secondary-button { width: 100%; }
   .cohort-list > div { grid-template-columns: 1fr auto; }

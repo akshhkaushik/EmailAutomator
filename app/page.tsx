@@ -142,7 +142,7 @@ function formatTime(value: string | null) {
 }
 
 export default function Home() {
-  const [view, setView] = useState<"compose" | "discovery" | "analytics">("compose");
+  const [view, setView] = useState<"compose" | "discovery" | "analytics">("discovery");
   const [profile, setProfile] = useState<Profile>(initialProfile);
   const [companyUrl, setCompanyUrl] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
@@ -167,7 +167,8 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (new URLSearchParams(window.location.search).get("view") === "discovery") setView("discovery");
+      const requestedView = new URLSearchParams(window.location.search).get("view");
+      if (requestedView === "compose" || requestedView === "analytics" || requestedView === "discovery") setView(requestedView);
       const saved = localStorage.getItem(PROFILE_STORAGE_KEY);
       if (saved) {
         try {
@@ -362,12 +363,11 @@ export default function Home() {
       <Script id="google-identity-script" src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onReady={() => setGoogleScriptReady(true)} />
 
       <header className="topbar">
-        <button className="brand" type="button" onClick={() => setView("compose")} aria-label="Outreach home">
+        <button className="brand" type="button" onClick={() => setView("discovery")} aria-label="Startup finder home">
           <span className="brand-mark">A</span><span>Aksh Outreach</span>
         </button>
         <nav className="view-nav" aria-label="Workspace views">
-          <button className={view === "compose" ? "active" : ""} aria-current={view === "compose" ? "page" : undefined} onClick={() => setView("compose")} type="button">Compose</button>
-          <button className={view === "discovery" ? "active" : ""} aria-current={view === "discovery" ? "page" : undefined} onClick={() => setView("discovery")} type="button">Discovery</button>
+          <button className={view === "discovery" ? "active" : ""} aria-current={view === "discovery" ? "page" : undefined} onClick={() => setView("discovery")} type="button">Explore</button>
           <button className={view === "analytics" ? "active" : ""} aria-current={view === "analytics" ? "page" : undefined} onClick={() => setView("analytics")} type="button">Analytics</button>
         </nav>
         <button className={`connection ${gmailToken ? "connected" : ""}`} title={gmailToken ? "Connected on this browser · click to disconnect" : "Connect Gmail"} onClick={gmailToken ? disconnectGmail : connectGmail} type="button">
