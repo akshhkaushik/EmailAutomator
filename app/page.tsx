@@ -320,7 +320,14 @@ export default function Home() {
       const safeRecipient = researchResult.contact?.email || "research-only@placeholder.invalid";
       const response = await fetch("/api/draft", {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${gmailToken}` },
-        body: JSON.stringify({ companyUrl: researchResult.companyUrl, recipientEmail: safeRecipient, recipientName: researchResult.selectedFounder?.name || "Founder", profile }),
+        body: JSON.stringify({
+          companyUrl: researchResult.companyUrl,
+          companyName: researchResult.companyName,
+          sourceUrl: researchResult.sourceUrl,
+          recipientEmail: safeRecipient,
+          recipientName: researchResult.selectedFounder?.name || "Founder",
+          profile,
+        }),
         signal: AbortSignal.timeout(55_000),
       });
       const result = await response.json();

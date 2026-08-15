@@ -22,6 +22,19 @@ Ryan Luo
 - Eric Wolford
 `;
 
+const SHORT_ACCEL_FIXTURE = `# ApnaMart
+
+Asset light retail chain
+
+**Website:** [https://apnamart.in/](https://apnamart.in/)
+
+## Founders
+
+Abhishek Singh
+
+Chetan Kumar Garg
+`;
+
 test("uses an advertised same-origin Markdown representation for oversized profile pages", () => {
   const source = new URL("https://www.accel.com/companies/aegisai");
   const link = '</companies/aegisai.md>; rel="alternate"; type="text/markdown"';
@@ -34,4 +47,11 @@ test("extracts the company, founder list, and official website from an accelerat
   assert.equal(companyNameFromContent(ACCEL_FIXTURE, source), "AegisAI");
   assert.deepEqual(foundersFromContent(ACCEL_FIXTURE).map(({ name }) => name), ["Cy Khormaee", "Ryan Luo"]);
   assert.equal(linkedCompanyUrlFromContent(ACCEL_FIXTURE, source)?.toString(), "https://www.aegisai.ai/");
+});
+
+test("extracts sparse accelerator profiles even when the official site is client-rendered", () => {
+  const source = new URL("https://www.accel.com/companies/apnamart");
+  assert.equal(companyNameFromContent(SHORT_ACCEL_FIXTURE, source), "ApnaMart");
+  assert.deepEqual(foundersFromContent(SHORT_ACCEL_FIXTURE).map(({ name }) => name), ["Abhishek Singh", "Chetan Kumar Garg"]);
+  assert.equal(linkedCompanyUrlFromContent(SHORT_ACCEL_FIXTURE, source)?.toString(), "https://apnamart.in/");
 });
