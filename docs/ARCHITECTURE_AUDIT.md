@@ -229,7 +229,7 @@ The local environment also contains provider-injected Redis/KV variable names th
 1. `POST /api/draft` builds a strict JSON schema and provider request.
 2. `extractGeminiText` or `extractOutputText` extracts provider output.
 3. Invalid/missing output falls back to `researchedFallbackDraft`.
-4. `contributionSubject`, `personalIntroduction`, `highlightTerms`, `uniqueSenderWork`, `humblePitch`, `projectLinks`, and `composeEmail` assemble the final editable Markdown body.
+4. The focused outreach composer assembles the final editable Markdown body from a grounded observation, one concrete build idea, Aksh's portfolio and CV context, and one low-friction CTA.
 5. `app/page.tsx::generateDraft` places the response into state and local storage.
 
 ### 5. Review and approval

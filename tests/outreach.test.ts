@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildOutreachContext, assertOutreachMode } from "../lib/outreach/context.ts";
 import { DeterministicOutreachGenerator } from "../lib/outreach/generator.ts";
+import { coldEmailFormatMetrics } from "../lib/outreach/focused-email.ts";
 import { detectEditedCompanyClaims, validateOutreachClaims } from "../lib/outreach/validation.ts";
 import { buildStartupIntelligence } from "../lib/intelligence/build-intelligence.ts";
 import type { Evidence } from "../lib/intelligence/types.ts";
@@ -32,8 +33,12 @@ test("outreach modes cannot claim a build without completed proof", () => {
 test("deterministic email generation uses evidence and real proof", async () => {
   const context = buildOutreachContext({ startup, intelligence: buildStartupIntelligence(startup.id, [evidence]), evidence: [evidence], opportunity, mode: "build_before_ask", build: completedBuild, history: [] });
   const result = await new DeterministicOutreachGenerator().generate(context, "Ada");
-  assert.match(result.body, /I built a small proof/);
+  assert.match(result.body, /I put together a small public proof/);
   assert.match(result.body, /github.com\/aksh\/proof/);
+  const format = coldEmailFormatMetrics(result.subject, result.body);
+  assert.ok(format.subjectWords <= 4);
+  assert.ok(format.contentWords >= 50 && format.contentWords <= 100);
+  assert.equal(format.questions, 1);
   assert.deepEqual(result.claims[0].evidenceIds, [evidence.id]);
 });
 

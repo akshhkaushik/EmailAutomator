@@ -5,7 +5,6 @@ type FocusedOutreachInput = {
   companyObservation: string;
   pitch: string;
   portfolioUrl?: string;
-  highlightTerms?: string[];
   signature: string;
 };
 
@@ -17,18 +16,14 @@ function markdownLabel(value: string) {
   return value.replace(/[\[\]]/g, "").trim();
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function clipWords(value: string, limit: number) {
+  const words = clean(value).split(" ").filter(Boolean);
+  return words.length <= limit ? words.join(" ") : `${words.slice(0, limit).join(" ").replace(/[,;:]$/, "")}.`;
 }
 
-function highlight(value: string, terms: string[]) {
-  const formatted = clean(value).replace(/\s+([,.;:!?])/g, "$1");
-  const uniqueTerms = [...new Set(terms.map(clean).filter((term) => term.length >= 3 && term.length <= 80))]
-    .sort((left, right) => right.length - left.length)
-    .slice(0, 6);
-  if (uniqueTerms.length === 0) return formatted;
-  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])(${uniqueTerms.map(escapeRegExp).join("|")})(?=$|[^\\p{L}\\p{N}])`, "giu");
-  return formatted.replace(pattern, "$1**$2**");
+function sentence(value: string) {
+  const result = clean(value).replace(/\s+([,.;:!?])/g, "$1");
+  return result && !/[.!?]$/.test(result) ? `${result}.` : result;
 }
 
 function safePortfolioUrl(value?: string) {
@@ -40,22 +35,48 @@ function safePortfolioUrl(value?: string) {
   }
 }
 
-function focusedPitch(value: string, terms: string[]) {
+function focusedPitch(value: string) {
   const idea = clean(value)
     .replace(/^I (?:wondered whether|was wondering (?:whether|if)) (?:it would be useful to )?/i, "")
+    .replace(/^One concrete thing I could build is /i, "")
     .replace(/^it would be useful to /i, "");
-  return idea ? `One concrete thing I could build is ${highlight(idea, terms)}` : "";
+  return idea ? sentence(`I could build ${clipWords(idea, 24)}`) : "";
+}
+
+function conciseObservation(value: string) {
+  return sentence(clipWords(clean(value)
+    .replace(/^What stood out to me was this:\s*/i, "")
+    .replace(/^I (?:noticed|saw) (?:that )?/i, ""), 22));
+}
+
+function shortCompanyName(value: string) {
+  return clean(value).split(" ").filter(Boolean).slice(0, 2).join(" ") || "Startup";
+}
+
+export function focusedOutreachSubject(companyName: string) {
+  return `${shortCompanyName(companyName)} product idea`;
+}
+
+export function focusedProofSubject(companyName: string) {
+  return `${shortCompanyName(companyName)} prototype`;
+}
+
+export function coldEmailFormatMetrics(subject: string, body: string) {
+  const count = (value: string) => value.match(/[\p{L}\p{N}’'-]+/gu)?.length || 0;
+  return {
+    subjectWords: count(subject),
+    contentWords: count(body.split(/\nBest regards,/i)[0]),
+    questions: (body.match(/\?/g) || []).length,
+  };
 }
 
 export function composeFocusedOutreachEmail(input: FocusedOutreachInput) {
-  const terms = input.highlightTerms || [];
   return [
     `Hi ${clean(input.recipient)},`,
-    `I’m Aksh Kaushik, a third-year student at BITS Pilani. I came across **[${markdownLabel(input.companyName)}](${input.companyUrl})** while researching the company.`,
-    highlight(input.companyObservation, terms),
-    focusedPitch(input.pitch, terms),
-    `I’m currently building practical AI, product, and automation systems; you can see the broader direction of my work in my **[portfolio](${safePortfolioUrl(input.portfolioUrl)})**. I’ve attached my CV for context.`,
-    "If this direction is relevant, I’d be grateful for a brief conversation to understand the real constraint and see whether a small prototype could be useful.",
+    `I noticed this while researching [${markdownLabel(input.companyName)}](${input.companyUrl}): ${conciseObservation(input.companyObservation)}`,
+    focusedPitch(input.pitch),
+    `I’m Aksh, a third-year BITS Pilani student building practical AI, product, and automation systems. My [portfolio](${safePortfolioUrl(input.portfolioUrl)}) shows the broader direction; I’ve attached my CV for context.`,
+    "Would it be useful if I sent a one-page outline of this idea?",
     input.signature,
   ].filter(Boolean).join("\n\n");
 }
