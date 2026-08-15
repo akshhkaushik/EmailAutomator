@@ -16,6 +16,10 @@ function markdownLabel(value: string) {
   return value.replace(/[\[\]]/g, "").trim();
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function clipWords(value: string, limit: number) {
   const words = clean(value).split(" ").filter(Boolean);
   return words.length <= limit ? words.join(" ") : `${words.slice(0, limit).join(" ").replace(/[,;:]$/, "")}.`;
@@ -39,14 +43,23 @@ function focusedPitch(value: string) {
   const idea = clean(value)
     .replace(/^I (?:wondered whether|was wondering (?:whether|if)) (?:it would be useful to )?/i, "")
     .replace(/^One concrete thing I could build is /i, "")
+    .replace(/^I (?:could|can|would|want to|would like to) build\s+/i, "")
+    .replace(/^Build\s+/i, "")
     .replace(/^it would be useful to /i, "");
   return idea ? sentence(`I could build ${clipWords(idea, 24)}`) : "";
 }
 
-function conciseObservation(value: string) {
-  return sentence(clipWords(clean(value)
+function conciseObservation(value: string, companyName: string) {
+  const company = escapeRegExp(clean(companyName));
+  const observation = clean(value)
     .replace(/^What stood out to me was this:\s*/i, "")
-    .replace(/^I (?:noticed|saw) (?:that )?/i, ""), 22));
+    .replace(/^I (?:noticed|saw) (?:that )?/i, "")
+    .replace(new RegExp(`^${company}'s\\s+`, "i"), "its ")
+    .replace(new RegExp(`^${company}\\s+`, "i"), "it ")
+    .replace(/^Your\s+/i, "its ")
+    .replace(/^The company\s+/i, "it ")
+    .replace(/^(It|Its|The|A|An)\b/, (word) => word.toLowerCase());
+  return sentence(clipWords(observation, 22));
 }
 
 function shortCompanyName(value: string) {
@@ -62,10 +75,13 @@ export function focusedProofSubject(companyName: string) {
 }
 
 export function coldEmailFormatMetrics(subject: string, body: string) {
-  const count = (value: string) => value.match(/[\p{L}\p{N}’'-]+/gu)?.length || 0;
+  const count = (value: string) => value
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .match(/[\p{L}\p{N}’'-]+/gu)?.length || 0;
   return {
     subjectWords: count(subject),
-    contentWords: count(body.split(/\nBest regards,/i)[0]),
+    contentWords: count(body.split(/\nBest(?: regards)?,/i)[0]),
     questions: (body.match(/\?/g) || []).length,
   };
 }
@@ -73,10 +89,10 @@ export function coldEmailFormatMetrics(subject: string, body: string) {
 export function composeFocusedOutreachEmail(input: FocusedOutreachInput) {
   return [
     `Hi ${clean(input.recipient)},`,
-    `I noticed this while researching [${markdownLabel(input.companyName)}](${input.companyUrl}): ${conciseObservation(input.companyObservation)}`,
+    `While looking into [${markdownLabel(input.companyName)}](${input.companyUrl}), I noticed ${conciseObservation(input.companyObservation, input.companyName)}`,
     focusedPitch(input.pitch),
-    `I’m Aksh, a third-year BITS Pilani student building practical AI, product, and automation systems. My [portfolio](${safePortfolioUrl(input.portfolioUrl)}) shows the broader direction; I’ve attached my CV for context.`,
-    "Would it be useful if I sent a one-page outline of this idea?",
+    `I’m Aksh, a third-year BITS Pilani student building practical AI and product systems. I take ownership, work responsibly, communicate clearly, and stay accountable for delivery. My [portfolio](${safePortfolioUrl(input.portfolioUrl)}) has more context; I’ve attached my CV.`,
+    "Would it help if I sent over a short outline of how I’d approach this?",
     input.signature,
   ].filter(Boolean).join("\n\n");
 }
