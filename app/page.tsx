@@ -442,7 +442,7 @@ export default function Home() {
                     <div className="address-row"><label>To<input value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} /></label></div>
                     <div className="address-row"><label>Subject<input value={subject} onChange={(event) => setSubject(event.target.value)} /></label></div>
                     <div className="email-preview" dangerouslySetInnerHTML={{ __html: markdownToHtml(body) }} />
-                    <details className="source-editor"><summary>Edit message text</summary><textarea rows={18} aria-label="Message source" value={body} onChange={(event) => setBody(event.target.value)} /><p>{draftFormat.subjectWords} subject words · {draftFormat.contentWords} words before the signature · {draftFormat.questions} question · target: 1–4, 50–100, and one.</p></details>
+                    <details className="source-editor"><summary>Edit message text</summary><textarea rows={22} aria-label="Message source" value={body} onChange={(event) => setBody(event.target.value)} /><p>{draftFormat.subjectWords} subject words · {draftFormat.contentWords} words before the signature · {draftFormat.questions} question · target: 2–5, 110–180, and at most one.</p></details>
                     <div className="send-options">
                       <label className="tracking-control"><input type="checkbox" checked={trackOpens} onChange={(event) => setTrackOpens(event.target.checked)} /><span><b>Track observed opens and link clicks</b><small>Open detection uses a pixel and can be blocked or proxied. Links are redirected through a click counter. Self-tests are excluded.</small></span></label>
                       <label className={`file-field ${cvFile ? "ready" : ""}`}>

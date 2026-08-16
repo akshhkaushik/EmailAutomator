@@ -35,10 +35,12 @@ test("deterministic email generation uses evidence and real proof", async () => 
   const result = await new DeterministicOutreachGenerator().generate(context, "Ada");
   assert.match(result.body, /I put together a small public proof/);
   assert.match(result.body, /github.com\/aksh\/proof/);
+  assert.match(result.body, /^TL;DR/m);
+  assert.match(result.body, /early engineering team/i);
   const format = coldEmailFormatMetrics(result.subject, result.body);
-  assert.ok(format.subjectWords <= 4);
-  assert.ok(format.contentWords >= 50 && format.contentWords <= 100);
-  assert.equal(format.questions, 1);
+  assert.ok(format.subjectWords >= 2 && format.subjectWords <= 5);
+  assert.ok(format.contentWords >= 110 && format.contentWords <= 180);
+  assert.ok(format.questions <= 1);
   assert.deepEqual(result.claims[0].evidenceIds, [evidence.id]);
 });
 

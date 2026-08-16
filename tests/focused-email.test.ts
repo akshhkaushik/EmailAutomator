@@ -13,20 +13,24 @@ test("outreach points to the portfolio without listing completed projects", () =
     signature: "Best regards,\n\nAksh Kaushik",
   });
 
-  assert.match(body, /building practical AI and product systems/i);
+  assert.match(body, /^TL;DR/m);
+  assert.match(body, /move something from 0 → 1 or 1 → 100/i);
+  assert.match(body, /practical AI, backend, automation, and product engineering/i);
   assert.match(body, /\[portfolio]\(https:\/\/akshhkaushik\.github\.io\/?\)/i);
-  assert.match(body, /I could build/i);
+  assert.match(body, /concrete way I could contribute is by building/i);
   assert.match(body, /sales conversations/i);
   assert.match(body, /attached my CV/i);
   assert.match(body, /take ownership, work responsibly/i);
   assert.match(body, /stay accountable for delivery/i);
-  assert.match(body, /Would it help if I sent over a short outline/i);
+  assert.match(body, /part of an early engineering team/i);
+  assert.match(body, /glad to send a short implementation outline/i);
   assert.doesNotMatch(body, /I (?:have |have already )?built/i);
   assert.doesNotMatch(body, /CEO Voice|Veritas|EvoComb|GLOB/i);
   const format = coldEmailFormatMetrics(focusedOutreachSubject("AegisAI Security Labs"), body);
+  assert.equal(focusedOutreachSubject("AegisAI Security Labs"), "Engineering at AegisAI Security");
   assert.equal(format.subjectWords, 4);
-  assert.ok(format.contentWords >= 50 && format.contentWords <= 100);
-  assert.equal(format.questions, 1);
+  assert.ok(format.contentWords >= 110 && format.contentWords <= 180);
+  assert.ok(format.questions <= 1);
   assert.doesNotMatch(body, /\*\*/);
 });
 
@@ -42,11 +46,13 @@ test("normalizes repeated AI lead-ins and company names into natural prose", () 
     signature: "Best,\n\nAksh Kaushik",
   });
 
-  assert.match(body, /While looking into \[100ms].*I noticed it offers developer-friendly SDKs/i);
-  assert.match(body, /I could build a lightweight developer dashboard widget/i);
+  assert.match(body, /Hi Kshitij,/i);
+  assert.match(body, /I enjoyed learning about \[100ms][\s\S]*What caught my attention was that it offers developer-friendly SDKs/i);
+  assert.match(body, /contribute is by building a lightweight developer dashboard widget/i);
   assert.doesNotMatch(body, /I could build I could build/i);
-  assert.doesNotMatch(body, /100ms.*100ms offers/i);
+  assert.doesNotMatch(body, /What caught my attention was that 100ms offers/i);
   const format = coldEmailFormatMetrics(subject, body);
-  assert.ok(format.contentWords >= 50 && format.contentWords <= 100);
-  assert.equal(format.questions, 1);
+  assert.equal(subject, "Engineering at 100ms");
+  assert.ok(format.contentWords >= 110 && format.contentWords <= 180);
+  assert.ok(format.questions <= 1);
 });

@@ -46,7 +46,7 @@ function focusedPitch(value: string) {
     .replace(/^I (?:could|can|would|want to|would like to) build\s+/i, "")
     .replace(/^Build\s+/i, "")
     .replace(/^it would be useful to /i, "");
-  return idea ? sentence(`I could build ${clipWords(idea, 24)}`) : "";
+  return idea ? sentence(`A concrete way I could contribute is by building ${clipWords(idea, 32)}`) : "";
 }
 
 function conciseObservation(value: string, companyName: string) {
@@ -66,12 +66,16 @@ function shortCompanyName(value: string) {
   return clean(value).split(" ").filter(Boolean).slice(0, 2).join(" ") || "Startup";
 }
 
+function firstName(value: string) {
+  return clean(value).split(" ").filter(Boolean)[0] || "there";
+}
+
 export function focusedOutreachSubject(companyName: string) {
-  return `${shortCompanyName(companyName)} product idea`;
+  return `Engineering at ${shortCompanyName(companyName)}`;
 }
 
 export function focusedProofSubject(companyName: string) {
-  return `${shortCompanyName(companyName)} prototype`;
+  return `${shortCompanyName(companyName)} engineering prototype`;
 }
 
 export function coldEmailFormatMetrics(subject: string, body: string) {
@@ -87,12 +91,15 @@ export function coldEmailFormatMetrics(subject: string, body: string) {
 }
 
 export function composeFocusedOutreachEmail(input: FocusedOutreachInput) {
+  const companyName = markdownLabel(input.companyName);
   return [
-    `Hi ${clean(input.recipient)},`,
-    `While looking into [${markdownLabel(input.companyName)}](${input.companyUrl}), I noticed ${conciseObservation(input.companyObservation, input.companyName)}`,
+    "TL;DR",
+    "I enjoy spending my free time coding and building systems. I’m looking for a small, ambitious team where I can stay close to the product, take ownership, and help move something from 0 → 1 or 1 → 100.",
+    `Hi ${firstName(input.recipient)},`,
+    `I enjoyed learning about [${companyName}](${input.companyUrl}). What caught my attention was that ${conciseObservation(input.companyObservation, input.companyName)}`,
     focusedPitch(input.pitch),
-    `I’m Aksh, a third-year BITS Pilani student building practical AI and product systems. I take ownership, work responsibly, communicate clearly, and stay accountable for delivery. My [portfolio](${safePortfolioUrl(input.portfolioUrl)}) has more context; I’ve attached my CV.`,
-    "Would it help if I sent over a short outline of how I’d approach this?",
+    "I’m Aksh, a third-year BITS Pilani student interested in practical AI, backend, automation, and product engineering. I take ownership, work responsibly, communicate clearly, and stay accountable for delivery from the first discussion onward.",
+    `I’d genuinely like to contribute to ${companyName} as part of an early engineering team. My [portfolio](${safePortfolioUrl(input.portfolioUrl)}) has more context, and I’ve attached my CV. If you are hiring—or if the idea above could be useful—I’d be glad to send a short implementation outline.`,
     input.signature,
   ].filter(Boolean).join("\n\n");
 }
