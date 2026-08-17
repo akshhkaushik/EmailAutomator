@@ -3,8 +3,8 @@ import { jsonBody } from "@/lib/discovery/api";
 import { fetchPublicResearchPage } from "@/lib/discovery/http";
 import { normalizeDomain } from "@/lib/discovery/normalize";
 import { enforceStartupResearchRateLimit } from "@/lib/discovery/rate-limit";
-import { HunterEmailFinder } from "@/lib/contacts/hunter";
 import { founderContactFromSentHistory } from "@/lib/contacts/history";
+import { founderEmailProviderFromEnvironment } from "@/lib/contacts/provider";
 import { findOneFounderEmail } from "@/lib/contacts/single-link";
 import type { FounderContact } from "@/lib/contacts/types";
 import { errorName, structuredLog } from "@/lib/observability";
@@ -39,6 +39,7 @@ export async function POST(request: Request) {
     const founders = [...new Map([...foundersFromContent(suppliedContent), ...foundersFromContent(companyContent)].map((founder) => [founder.name.toLowerCase(), founder])).values()];
     const selectedFounder = founders[0] || null;
     const domain = normalizeDomain(resolvedUrl.toString());
+    const finder = founderEmailProviderFromEnvironment();
     let contact: FounderContact | null = null;
     if (selectedFounder && domain) {
       contact = founderContactFromSentHistory({
@@ -51,13 +52,13 @@ export async function POST(request: Request) {
       } else {
         contact = await findOneFounderEmail({
           founderName: selectedFounder.name, founderRole: selectedFounder.role, founderProfileUrl: selectedFounder.profileUrl,
-          companyDomain: domain, finder: process.env.HUNTER_API_KEY ? new HunterEmailFinder(process.env.HUNTER_API_KEY) : undefined,
+          companyDomain: domain, finder,
         });
       }
     }
     return Response.json({
       companyUrl: resolvedUrl.origin, companyName: companyNameFromContent(companyContent, resolvedUrl), domain,
-      founders, selectedFounder, contact, providerConfigured: Boolean(process.env.HUNTER_API_KEY),
+      founders, selectedFounder, contact, providerConfigured: Boolean(finder), provider: finder?.id || null,
       sourceUrl: suppliedUrl.toString(), researchedAt: new Date().toISOString(),
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {

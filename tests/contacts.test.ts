@@ -4,8 +4,10 @@ import { generateFounderEmailCandidates, founderNameParts, patternForEmail } fro
 import { HunterEmailFinder } from "../lib/contacts/hunter.ts";
 import { founderContactFromSentHistory } from "../lib/contacts/history.ts";
 import { InMemoryFounderContactRepository } from "../lib/contacts/memory-repository.ts";
+import { founderEmailProviderFromEnvironment } from "../lib/contacts/provider.ts";
 import { canUseFounderContact, discoverFounderContacts } from "../lib/contacts/service.ts";
 import { findOneFounderEmail } from "../lib/contacts/single-link.ts";
+import { SnovEmailFinder } from "../lib/contacts/snov.ts";
 import { InMemoryDiscoveryRepository } from "../lib/discovery/memory-repository.ts";
 import { InMemoryIntelligenceRepository } from "../lib/intelligence/memory-repository.ts";
 import { buildStartupIntelligence } from "../lib/intelligence/build-intelligence.ts";
@@ -74,6 +76,36 @@ test("maps Hunter verification and provenance without exposing the API key", asy
   const result = await finder.find({ founderName: "Ada Lovelace", domain: "example.com" });
   assert.equal(result?.status, "valid");
   assert.equal(result?.sources[0].url, "https://example.com/team");
+});
+
+test("uses Snov.io name-and-domain lookup and maps its SMTP status", async () => {
+  const requests: Array<{ url: string; authorization: string; body: string }> = [];
+  const responses = [
+    new Response(JSON.stringify({ access_token: "short-lived-token", expires_in: 3600 }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    new Response(JSON.stringify({ data: { task_hash: "task-123" } }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    new Response(JSON.stringify({ status: "completed", data: [{ people: "Ada Lovelace", result: [{ email: "ada@example.com", smtp_status: "valid" }] }] }), { status: 200, headers: { "Content-Type": "application/json" } }),
+  ];
+  const finder = new SnovEmailFinder("client-id", "client-secret", async (input, init) => {
+    requests.push({ url: String(input), authorization: new Headers(init?.headers).get("Authorization") || "", body: String(init?.body || "") });
+    const response = responses.shift();
+    assert.ok(response);
+    return response;
+  });
+  const result = await finder.find({ founderName: "Ada Lovelace", domain: "example.com" });
+  assert.equal(result?.email, "ada@example.com");
+  assert.equal(result?.status, "valid");
+  assert.equal(result?.score, 95);
+  assert.match(requests[0].body, /client_id=client-id/);
+  assert.match(requests[0].body, /client_secret=client-secret/);
+  assert.doesNotMatch(requests[0].url, /client-secret/);
+  assert.equal(requests[1].authorization, "Bearer short-lived-token");
+  assert.equal(requests[2].authorization, "Bearer short-lived-token");
+});
+
+test("prefers Snov.io and keeps Hunter as a configuration fallback", () => {
+  assert.equal(founderEmailProviderFromEnvironment({ SNOV_CLIENT_ID: "id", SNOV_CLIENT_SECRET: "secret", HUNTER_API_KEY: "hunter" })?.id, "snov");
+  assert.equal(founderEmailProviderFromEnvironment({ SNOV_CLIENT_ID: "", SNOV_CLIENT_SECRET: "", HUNTER_API_KEY: "hunter" })?.id, "hunter");
+  assert.equal(founderEmailProviderFromEnvironment({ SNOV_CLIENT_ID: "id", SNOV_CLIENT_SECRET: "", HUNTER_API_KEY: "" }), undefined);
 });
 
 test("contact discovery requires founder evidence and only safe verification is usable", async () => {

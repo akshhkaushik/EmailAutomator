@@ -48,7 +48,7 @@ export async function discoverFounderContacts(input: {
       email: result?.email || null, pattern: result?.email ? patternForEmail(result.email, candidates) : null, candidates,
       origin: result ? (result.sources.length > 0 ? "public" : "inferred") : "unresolved",
       verificationStatus: result?.status || "unverified", confidence: result?.score || 0,
-      provider: result ? "hunter" : "local-patterns", sourceUrls: result?.sources || [],
+      provider: result ? input.finder?.id || "local-patterns" : "local-patterns", sourceUrls: result?.sources || [],
       discoveredAt: existing?.discoveredAt || now, verifiedAt: result?.verifiedAt || null, updatedAt: now,
     };
     contacts.push(await input.contactRepository.upsert(contact));

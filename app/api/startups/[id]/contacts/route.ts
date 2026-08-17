@@ -1,5 +1,5 @@
 import { getFounderContactRepository } from "@/lib/contacts/redis-repository";
-import { HunterEmailFinder } from "@/lib/contacts/hunter";
+import { founderEmailProviderFromEnvironment } from "@/lib/contacts/provider";
 import { discoverFounderContacts } from "@/lib/contacts/service";
 import { discoveryApiError, jsonBody } from "@/lib/discovery/api";
 import { requireDiscoveryAccess } from "@/lib/discovery/auth";
@@ -15,7 +15,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     await requireDiscoveryAccess(request);
     const { id } = await context.params;
-    return Response.json({ contacts: await getFounderContactRepository().list(validateResourceId(id, "Startup")), providerConfigured: Boolean(process.env.HUNTER_API_KEY) }, { headers: { "Cache-Control": "private, no-store" } });
+    const finder = founderEmailProviderFromEnvironment();
+    return Response.json({ contacts: await getFounderContactRepository().list(validateResourceId(id, "Startup")), providerConfigured: Boolean(finder), provider: finder?.id || null }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return discoveryApiError(error); }
 }
 
@@ -28,11 +29,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const founderNameValue = (body as Record<string, unknown>).founderName;
     if (founderNameValue !== undefined && typeof founderNameValue !== "string") throw new ValidationError("Founder name must be a string.");
     const { id } = await context.params;
-    const finder = process.env.HUNTER_API_KEY ? new HunterEmailFinder(process.env.HUNTER_API_KEY) : undefined;
+    const finder = founderEmailProviderFromEnvironment();
     const contacts = await discoverFounderContacts({
       startupId: validateResourceId(id, "Startup"), founderName: typeof founderNameValue === "string" ? founderNameValue.trim().slice(0, 160) : undefined,
       discoveryRepository: getDiscoveryRepository(), intelligenceRepository: getIntelligenceRepository(), contactRepository: getFounderContactRepository(), finder,
     });
-    return Response.json({ contacts, providerConfigured: Boolean(finder) }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json({ contacts, providerConfigured: Boolean(finder), provider: finder?.id || null }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return discoveryApiError(error); }
 }

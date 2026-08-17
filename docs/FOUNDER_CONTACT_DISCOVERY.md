@@ -21,9 +21,11 @@ Accelerator shortlist → cohort/portfolio discovery → research and scoring
 
 The local engine ranks a bounded deterministic order: `first@domain`, `first.last@domain`, `firstlast@domain`, `flast@domain`, `f.last@domain`, and then lower-probability last-name variants. The first five checks run concurrently to stay within serverless execution limits, but selection always chooses the earliest safely deliverable result in that ranking. Each attempted candidate retains its rank, status, confidence, and timestamp. An unverified combination is not a usable recipient and is stored with `unverified`/`unresolved` status.
 
-## Hunter adapter
+## Provider order and stored-contact reuse
 
-When `HUNTER_API_KEY` is configured, the server calls Hunter Email Verifier for each ordered candidate. It retains:
+The direct-link workflow first checks successful send history for an exact normalized founder-name and company-domain match. A match reuses that address without spending another provider credit. It never reuses an address across a different founder or domain.
+
+When `SNOV_CLIENT_ID` and `SNOV_CLIENT_SECRET` are configured, Snov.io is the primary external adapter. The server obtains a short-lived access token, submits one name-and-domain lookup, polls only that bounded task, and maps the returned SMTP status into the local verification model. It retains:
 
 - returned address and pattern;
 - public versus inferred origin;
@@ -31,7 +33,7 @@ When `HUNTER_API_KEY` is configured, the server calls Hunter Email Verifier for 
 - confidence score;
 - public source URLs and observation dates.
 
-The API key is server-only and is never returned to the UI or logged.
+The credentials and access token are server-only and are never returned to the UI or logged. `HUNTER_API_KEY` remains a backwards-compatible fallback only when both Snov.io variables are absent.
 
 ## Outreach gating
 

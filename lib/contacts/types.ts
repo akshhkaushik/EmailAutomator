@@ -29,7 +29,7 @@ export type FounderContact = {
   origin: "public" | "inferred" | "unresolved";
   verificationStatus: EmailVerificationStatus;
   confidence: number;
-  provider: "hunter" | "local-patterns" | "history";
+  provider: "hunter" | "snov" | "local-patterns" | "history";
   sourceUrls: EmailSource[];
   discoveredAt: string;
   verifiedAt: string | null;
@@ -45,7 +45,7 @@ export type FounderContactLookup = {
 };
 
 export interface FounderEmailFinder {
-  readonly id: "hunter";
+  readonly id: "hunter" | "snov";
   find(input: { founderName: string; domain: string }): Promise<FounderContactLookup | null>;
   verify?(email: string): Promise<FounderContactLookup>;
 }

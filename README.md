@@ -89,7 +89,7 @@ Redis stores accelerators, cohorts, startups, evidence, research runs, intellige
 
 ### Founder work-email discovery
 
-After research identifies a founder from public evidence, the app checks a small, transparent sequence beginning with `first@company-domain`, followed by `first.last`, `firstlast`, `flast`, and other lower-probability variants. Those combinations are labeled as inferred candidates and are never treated as facts. If `HUNTER_API_KEY` is configured, the server verifies each candidate in order and stores its status, confidence, and public source URLs. It stops at the first `valid` result, or an `accept_all` result with confidence of at least 85. Unknown, invalid, unresolved, and unverified candidates remain disabled. Gmail still requires explicit review and a separate send action.
+After research identifies a founder from public evidence, the app checks stored successful-send history first. An exact founder-name and company-domain match reuses the previously verified address without consuming another provider credit. Otherwise, `SNOV_CLIENT_ID` and `SNOV_CLIENT_SECRET` use Snov.io's name-and-domain finder, which returns a deliverability status with the address. Hunter remains an optional fallback only when Snov.io is not configured. Unknown, invalid, unresolved, and unverified results remain disabled. Gmail still requires explicit review and a separate send action.
 
 ## Environment variables
 
@@ -108,6 +108,8 @@ After research identifies a founder from public evidence, the app checks a small
 | `ENABLE_PAID_AI_FALLBACKS` | Optional | Server only | Set to `true` only if AI Gateway/OpenAI billing fallbacks are intentionally enabled; defaults to disabled |
 | `JINA_API_KEY` | Optional | Server only | Higher limits for blocked-site recovery through Jina Reader; anonymous basic usage works without it |
 | `HUNTER_API_KEY` | Optional | Secret, server only | Finds and verifies evidence-backed founders' professional company-domain email addresses; candidate guesses remain disabled without verification |
+| `SNOV_CLIENT_ID` | Recommended for founder email discovery | Secret, server only | Snov.io API user ID; takes precedence over Hunter when paired with `SNOV_CLIENT_SECRET` |
+| `SNOV_CLIENT_SECRET` | Recommended for founder email discovery | Secret, server only | Snov.io API secret used to obtain short-lived access tokens; never returned to the browser |
 | `UPSTASH_REDIS_REST_URL` | Required in production | Secret, server only | Durable workflow, analytics, lock, and idempotency storage URL |
 | `UPSTASH_REDIS_REST_TOKEN` | Required in production | Secret, server only | Durable workflow, analytics, lock, and idempotency storage token |
 
