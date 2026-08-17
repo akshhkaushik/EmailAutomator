@@ -4,13 +4,22 @@ export function escapeHtml(value: string) {
   })[character] || character);
 }
 
-export function markdownToHtml(value: string) {
+export function extractHttpLinks(value: string) {
+  const cleanUrl = (url: string) => url.replace(/[.,;:!?]+$/, "");
+  const links = [
+    ...[...value.matchAll(/\[[^\]]+\]\((https?:\/\/[^)\s]+)\)/g)].map((match) => cleanUrl(match[1])),
+    ...[...value.matchAll(/(?<!\]\()(https?:\/\/[^\s<)]+)/g)].map((match) => cleanUrl(match[1])),
+  ];
+  return [...new Set(links)];
+}
+
+export function markdownToHtml(value: string, rewriteLink: (url: string) => string = (url) => url) {
   const links: string[] = [];
   const withLinkTokens = escapeHtml(value).replace(
     /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
     (_match, label: string, url: string) => {
       const index = links.push(
-        `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#235f46;font-weight:700;text-decoration:underline">${label}</a>`,
+        `<a href="${escapeHtml(rewriteLink(url.replaceAll("&amp;", "&")))}" target="_blank" rel="noopener noreferrer" style="color:#235f46;font-weight:700;text-decoration:underline">${label}</a>`,
       ) - 1;
       return `%%SIGNAL_LINK_${index}%%`;
     },
@@ -21,7 +30,7 @@ export function markdownToHtml(value: string) {
       /\*\*([^*\n]+)\*\*/g,
       '<strong style="font-weight:700;color:#102c21">$1</strong>',
     )
-    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#235f46;text-decoration:underline">$1</a>')
+    .replace(/(https?:\/\/[^\s<]+)/g, (_match, url: string) => `<a href="${escapeHtml(rewriteLink(url.replaceAll("&amp;", "&")))}" style="color:#235f46;text-decoration:underline">${url}</a>`)
     .replace(/%%SIGNAL_LINK_(\d+)%%/g, (_match, index: string) => links[Number(index)] || "");
 
   return formatted

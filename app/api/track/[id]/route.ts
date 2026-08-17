@@ -1,4 +1,5 @@
 import { observeOpen } from "@/lib/tracking";
+import { errorName, structuredLog } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const { id } = await context.params;
     await observeOpen(id, request.headers.get("user-agent") || "Unknown email client");
   } catch (error) {
-    console.error("Open observation failed", error);
+    structuredLog("error", "tracking.open_observation_failed", { errorType: errorName(error) });
   }
   return new Response(TRANSPARENT_GIF, {
     headers: {
