@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { generateFounderEmailCandidates, founderNameParts, patternForEmail } from "../lib/contacts/candidates.ts";
 import { HunterEmailFinder } from "../lib/contacts/hunter.ts";
+import { founderContactFromSentHistory } from "../lib/contacts/history.ts";
 import { InMemoryFounderContactRepository } from "../lib/contacts/memory-repository.ts";
 import { canUseFounderContact, discoverFounderContacts } from "../lib/contacts/service.ts";
 import { findOneFounderEmail } from "../lib/contacts/single-link.ts";
@@ -9,6 +10,7 @@ import { InMemoryDiscoveryRepository } from "../lib/discovery/memory-repository.
 import { InMemoryIntelligenceRepository } from "../lib/intelligence/memory-repository.ts";
 import { buildStartupIntelligence } from "../lib/intelligence/build-intelligence.ts";
 import type { Evidence } from "../lib/intelligence/types.ts";
+import type { TrackingRecord } from "../lib/tracking.ts";
 
 test("generates deterministic deduplicated company-domain combinations", () => {
   assert.deepEqual(founderNameParts("Éva van Stone"), { first: "eva", last: "stone" });
@@ -34,6 +36,33 @@ test("single-link founder lookup stops at the first safely deliverable candidate
   assert.deepEqual(attempts, ["ada@example.com", "ada.lovelace@example.com"]);
   assert.equal(contact.email, "ada.lovelace@example.com");
   assert.equal(contact.verificationStatus, "valid");
+});
+
+test("reuses an exact previously sent founder address without another provider lookup", () => {
+  const sentAt = "2026-08-16T12:06:46.000Z";
+  const record: TrackingRecord = {
+    id: "5f3086b6-078d-4f44-b44e-9f0f7380b1cb", senderEmail: "aksh@example.com",
+    recipientEmail: "catherine@kernel.sh", recipientName: "Catherine Jue", companyName: "Kernel",
+    companyUrl: "https://www.kernel.sh/", subject: "Engineering at Kernel", gmailMessageId: "gmail-1",
+    status: "sent", trackingEnabled: true, selfTest: false, sentAt, firstOpenedAt: null, lastOpenedAt: null,
+    openCount: 0, opens: [], clickCount: 0, clicks: [], trackedLinks: [],
+  };
+  const contact = founderContactFromSentHistory({ records: [record], founderName: "Catherine Jue", companyDomain: "kernel.sh" });
+  assert.equal(contact?.email, "catherine@kernel.sh");
+  assert.equal(contact?.provider, "history");
+  assert.equal(contact?.verificationStatus, "valid");
+});
+
+test("does not reuse history across a different founder or company domain", () => {
+  const record = {
+    id: "5f3086b6-078d-4f44-b44e-9f0f7380b1cb", senderEmail: "aksh@example.com",
+    recipientEmail: "catherine@kernel.sh", recipientName: "Catherine Jue", companyName: "Kernel",
+    companyUrl: "https://kernel.sh/", subject: "Engineering at Kernel", gmailMessageId: "gmail-1",
+    status: "sent", trackingEnabled: true, selfTest: false, sentAt: "2026-08-16T12:06:46.000Z",
+    firstOpenedAt: null, lastOpenedAt: null, openCount: 0, opens: [], clickCount: 0, clicks: [], trackedLinks: [],
+  } satisfies TrackingRecord;
+  assert.equal(founderContactFromSentHistory({ records: [record], founderName: "Another Founder", companyDomain: "kernel.sh" }), null);
+  assert.equal(founderContactFromSentHistory({ records: [record], founderName: "Catherine Jue", companyDomain: "example.com" }), null);
 });
 
 test("maps Hunter verification and provenance without exposing the API key", async () => {

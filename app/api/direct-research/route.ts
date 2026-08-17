@@ -4,9 +4,12 @@ import { fetchPublicResearchPage } from "@/lib/discovery/http";
 import { normalizeDomain } from "@/lib/discovery/normalize";
 import { enforceStartupResearchRateLimit } from "@/lib/discovery/rate-limit";
 import { HunterEmailFinder } from "@/lib/contacts/hunter";
+import { founderContactFromSentHistory } from "@/lib/contacts/history";
 import { findOneFounderEmail } from "@/lib/contacts/single-link";
+import type { FounderContact } from "@/lib/contacts/types";
 import { errorName, structuredLog } from "@/lib/observability";
 import { companyNameFromContent, foundersFromContent, linkedCompanyUrlFromContent } from "@/lib/research/content";
+import { listTrackingRecords } from "@/lib/tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -36,10 +39,22 @@ export async function POST(request: Request) {
     const founders = [...new Map([...foundersFromContent(suppliedContent), ...foundersFromContent(companyContent)].map((founder) => [founder.name.toLowerCase(), founder])).values()];
     const selectedFounder = founders[0] || null;
     const domain = normalizeDomain(resolvedUrl.toString());
-    const contact = selectedFounder && domain ? await findOneFounderEmail({
-      founderName: selectedFounder.name, founderRole: selectedFounder.role, founderProfileUrl: selectedFounder.profileUrl,
-      companyDomain: domain, finder: process.env.HUNTER_API_KEY ? new HunterEmailFinder(process.env.HUNTER_API_KEY) : undefined,
-    }) : null;
+    let contact: FounderContact | null = null;
+    if (selectedFounder && domain) {
+      contact = founderContactFromSentHistory({
+        records: await listTrackingRecords(identity.email, 500),
+        founderName: selectedFounder.name, founderRole: selectedFounder.role, founderProfileUrl: selectedFounder.profileUrl,
+        companyDomain: domain,
+      });
+      if (contact) {
+        structuredLog("info", "founder_contact.history_hit", { domain });
+      } else {
+        contact = await findOneFounderEmail({
+          founderName: selectedFounder.name, founderRole: selectedFounder.role, founderProfileUrl: selectedFounder.profileUrl,
+          companyDomain: domain, finder: process.env.HUNTER_API_KEY ? new HunterEmailFinder(process.env.HUNTER_API_KEY) : undefined,
+        });
+      }
+    }
     return Response.json({
       companyUrl: resolvedUrl.origin, companyName: companyNameFromContent(companyContent, resolvedUrl), domain,
       founders, selectedFounder, contact, providerConfigured: Boolean(process.env.HUNTER_API_KEY),

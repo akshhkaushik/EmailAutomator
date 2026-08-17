@@ -29,7 +29,7 @@ export type FounderContact = {
   origin: "public" | "inferred" | "unresolved";
   verificationStatus: EmailVerificationStatus;
   confidence: number;
-  provider: "hunter" | "local-patterns";
+  provider: "hunter" | "local-patterns" | "history";
   sourceUrls: EmailSource[];
   discoveredAt: string;
   verifiedAt: string | null;
