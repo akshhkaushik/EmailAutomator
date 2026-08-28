@@ -4,6 +4,7 @@ import Script from "next/script";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { markdownToHtml } from "@/lib/markdown";
 import type { FounderContact } from "@/lib/contacts/types";
+import MailboxView from "./mailbox-view";
 
 type Draft = {
   companyUrl: string;
@@ -80,7 +81,7 @@ const initialProfile: Profile = {
 
 const PROFILE_STORAGE_KEY = "signal-profile";
 const GMAIL_CONNECTION_KEY = "signal-gmail-autoconnect";
-const GMAIL_TOKEN_KEY = "signal-gmail-token-v1";
+const GMAIL_TOKEN_KEY = "signal-gmail-token-v2";
 const TOKEN_EXPIRY_BUFFER_MS = 120_000;
 
 type CachedGmailToken = { accessToken: string; expiresAt: number };
@@ -155,7 +156,7 @@ function fileAsBase64(file: File) {
 }
 
 export default function Home() {
-  const [view, setView] = useState<"compose" | "analytics">("compose");
+  const [view, setView] = useState<"compose" | "outreach" | "analytics">("compose");
   const [profile, setProfile] = useState<Profile>(initialProfile);
   const [companyUrl, setCompanyUrl] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
@@ -182,7 +183,7 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const requestedView = new URLSearchParams(window.location.search).get("view");
-      if (requestedView === "analytics") setView("analytics");
+      if (requestedView === "analytics" || requestedView === "outreach") setView(requestedView);
       const saved = localStorage.getItem(PROFILE_STORAGE_KEY);
       if (saved) {
         try {
@@ -222,7 +223,7 @@ export default function Home() {
     };
     tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
       client_id: googleClientId,
-      scope: "openid email https://www.googleapis.com/auth/gmail.send",
+      scope: "openid email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly",
       callback: (response) => {
         const wasSilent = silentReconnectRef.current;
         silentReconnectRef.current = false;
@@ -383,6 +384,7 @@ export default function Home() {
         </button>
         <nav className="view-nav" aria-label="Workspace views">
           <button className={view === "compose" ? "active" : ""} aria-current={view === "compose" ? "page" : undefined} onClick={() => setView("compose")} type="button">New email</button>
+          <button className={view === "outreach" ? "active" : ""} aria-current={view === "outreach" ? "page" : undefined} onClick={() => setView("outreach")} type="button">Outreach list</button>
           <button className={view === "analytics" ? "active" : ""} aria-current={view === "analytics" ? "page" : undefined} onClick={() => setView("analytics")} type="button">Tracking</button>
         </nav>
         <button className={`connection ${gmailToken ? "connected" : ""}`} title={gmailToken ? "Connected on this browser · click to disconnect" : "Connect Gmail"} onClick={gmailToken ? disconnectGmail : connectGmail} type="button">
@@ -467,6 +469,8 @@ export default function Home() {
 
           </div>
         </div>
+      ) : view === "outreach" ? (
+        <MailboxView gmailToken={gmailToken} gmailConnected={Boolean(gmailToken)} onConnect={connectGmail} />
       ) : (
         <AnalyticsView analytics={analytics} loading={analyticsLoading} error={analyticsError} gmailConnected={Boolean(gmailToken)} gmailToken={gmailToken} onConnect={connectGmail} onRefresh={loadAnalytics} />
       )}

@@ -1,6 +1,6 @@
 # Aksh Outreach
 
-Aksh Outreach researches a company website, connects that research to your experience and projects, prepares a personalized job-outreach email, attaches your résumé, sends through Gmail only after a final review, and records observed email-open activity.
+Aksh Outreach researches a company website, connects that research to your experience and projects, prepares a personalized job-outreach email, attaches your résumé, sends through Gmail only after a final review, and keeps a Gmail-backed list of startup outreach outcomes.
 
 It also includes a bounded startup intelligence workflow from accelerator discovery through evidence, scoring, contribution hypotheses, proof-gated build specifications, audited outreach, outcomes, follow-up recommendations, and cautious learning analytics. Intelligence-derived company claims are validated against the evidence ledger before Gmail. Discovery, research, scoring, planning, and follow-up recommendations never send automatically.
 
@@ -17,8 +17,9 @@ It also includes a bounded startup intelligence workflow from accelerator discov
 - Appends Aksh's fixed BITS Pilani, GitHub, LinkedIn, portfolio, and email signature to every draft.
 - Starts every email with Aksh's BITS Pilani introduction, includes fixed linked examples for CEO Voice Platform, Veritas, EvoComb, and GLOB, then adds only non-duplicate relevant work and a humble company-specific idea.
 - Uses the consistent subject `I’d love to contribute to <Company>` and avoids decorative HTML and bulk-send behavior.
+- Builds a recipient-level outreach list from the last 365 days of Gmail, classifying replies, tracked opens, unanswered messages, and Mail Delivery Subsystem failures. Multiple recipients in one thread remain separate so a bounce does not hide another recipient's reply.
 - Offers per-email open tracking through a unique transparent image and shows first open, latest open, repeat loads, and exact observed timestamps in a private analytics view.
-- Requests Gmail sending plus basic Google identity scopes, keeps short-lived access tokens in browser memory, and uses the verified Google identity to protect analytics data.
+- Requests Gmail send and read-only scopes plus basic Google identity scopes, keeps short-lived access tokens in browser memory, and uses the verified Google identity to protect analytics data. Read-only access is used only to classify sent outreach, replies, and delivery notices; it cannot edit or delete mail.
 - Requires an explicit approval before each send.
 
 ## Local setup
@@ -50,9 +51,11 @@ See the architecture documents in [`docs/`](./docs), especially [the security mo
 
 ## Required services
 
-### Google Gmail sending
+### Google Gmail access
 
 Create a Google Cloud project, enable the Gmail API, configure the OAuth consent screen, and create an OAuth 2.0 Client ID for a **Web application**.
+
+The OAuth consent configuration must permit both `gmail.send` and `gmail.readonly`. Existing users will be asked to reconnect once so the outreach list can read sent threads and delivery notices.
 
 Add these Authorized JavaScript origins:
 
@@ -149,6 +152,7 @@ External web content is untrusted. Fetches use DNS-aware SSRF checks, timeouts, 
 ## Safety and privacy
 
 - Signal never stores a Gmail password.
+- Mailbox review uses Gmail read-only access and does not mark messages read, move, label, edit, or delete them.
 - Gmail access tokens remain short-lived and are stored only for the current browser session. A still-valid token survives a reload, is refreshed shortly before expiry while the app is open, and is reacquired silently on later visits when Google permits it. Disconnecting revokes the grant and clears the browser token and preference.
 - The résumé is read for the selected send and is not persisted by the app.
 - Company claims are restricted to readable content fetched from the supplied website.
